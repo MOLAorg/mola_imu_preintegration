@@ -2,6 +2,9 @@
 Changelog for package mola_imu_preintegration
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+Forthcoming
+-----------
+
 1.6.1 (2025-01-10)
 ------------------
 * Fix package.xml URLs
