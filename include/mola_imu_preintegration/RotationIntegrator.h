@@ -55,13 +55,11 @@ namespace mola
 class RotationIntegrator
 {
    public:
-    RotationIntegrator()  = default;
-    ~RotationIntegrator() = default;
+    RotationIntegrator() = default;
 
     struct IntegrationState
     {
-        IntegrationState()  = default;
-        ~IntegrationState() = default;
+        IntegrationState() = default;
 
         /// Time interval from i to j
         double deltaTij_ = 0;

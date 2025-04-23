@@ -53,8 +53,7 @@ namespace mola
 class RotationIntegrationParams
 {
    public:
-    RotationIntegrationParams()  = default;
-    ~RotationIntegrationParams() = default;
+    RotationIntegrationParams() = default;
 
     /// Loads all parameters from a YAML map node.
     void load_from(const mrpt::containers::yaml& cfg);

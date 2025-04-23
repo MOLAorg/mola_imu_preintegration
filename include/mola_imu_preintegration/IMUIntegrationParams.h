@@ -52,8 +52,7 @@ namespace mola
 class IMUIntegrationParams
 {
    public:
-    IMUIntegrationParams()  = default;
-    ~IMUIntegrationParams() = default;
+    IMUIntegrationParams() = default;
 
     /// Loads all parameters from a YAML map node.
     void loadFrom(const mrpt::containers::yaml& cfg);
