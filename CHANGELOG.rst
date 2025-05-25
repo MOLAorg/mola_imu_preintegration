@@ -2,8 +2,8 @@
 Changelog for package mola_imu_preintegration
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Forthcoming
------------
+1.8.1 (2025-05-25)
+------------------
 * fixes for clang-tidy
 * Contributors: Jose Luis Blanco-Claraco
 
