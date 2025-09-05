@@ -1,22 +1,17 @@
-/* -------------------------------------------------------------------------
- *   A Modular Optimization framework for Localization and mApping  (MOLA)
- *
- * Copyright (C) 2018-2025 Jose Luis Blanco, University of Almeria
- * Licensed under the GNU GPL v3 for non-commercial applications.
- *
- * This file is part of MOLA.
- * MOLA is free software: you can redistribute it and/or modify it under the
- * terms of the GNU General Public License as published by the Free Software
- * Foundation, either version 3 of the License, or (at your option) any later
- * version.
- *
- * MOLA is distributed in the hope that it will be useful, but WITHOUT ANY
- * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
- * A PARTICULAR PURPOSE. See the GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along with
- * MOLA. If not, see <https://www.gnu.org/licenses/>.
- * ------------------------------------------------------------------------- */
+/*               _
+ _ __ ___   ___ | | __ _
+| '_ ` _ \ / _ \| |/ _` | Modular Optimization framework for
+| | | | | | (_) | | (_| | Localization and mApping (MOLA)
+|_| |_| |_|\___/|_|\__,_| https://github.com/MOLAorg/mola
+
+ Copyright (C) 2018-2025 Jose Luis Blanco, University of Almeria,
+                         and individual contributors.
+ SPDX-License-Identifier: GPL-3.0
+ See LICENSE for full license information.
+ Closed-source licenses available upon request, for this odometry package
+ alone or in combination with the complete SLAM system.
+*/
+
 /**
  * @file   IMUIntegrationParams.h
  * @brief  Parameters for IMU preintegration.
@@ -64,13 +59,11 @@ class IMUIntegrationParams
     mrpt::math::TVector3D gravityVector = {0, 0, -9.81};
 
     /// Accelerometer covariance (units of sigma are m/s²/√Hz )
-    mrpt::math::CMatrixDouble33 accCov =
-        mrpt::math::CMatrixDouble33::Identity();
+    mrpt::math::CMatrixDouble33 accCov = mrpt::math::CMatrixDouble33::Identity();
 
     /// Integration covariance: jerk, that is, how much acceleration can change
     /// over time:
-    mrpt::math::CMatrixDouble33 integrationCov =
-        mrpt::math::CMatrixDouble33::Identity();
+    mrpt::math::CMatrixDouble33 integrationCov = mrpt::math::CMatrixDouble33::Identity();
 };
 
 }  // namespace mola
