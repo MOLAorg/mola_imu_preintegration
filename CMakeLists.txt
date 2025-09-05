@@ -24,8 +24,19 @@ find_package(mrpt-obs)
 
 # -----------------------
 # define lib:
-file(GLOB_RECURSE LIB_SRCS src/*.cpp src/*.h)
-file(GLOB_RECURSE LIB_PUBLIC_HDRS include/*.h)
+set(LIB_SRCS
+  src/RotationIntegrationParams.cpp
+  src/register.cpp
+  src/IMUIntegrationParams.cpp
+  src/RotationIntegrator.cpp
+  src/ImuInitialCalibrator.cpp
+)
+set(LIB_PUBLIC_HDRS
+  include/mola_imu_preintegration/RotationIntegrator.h
+  include/mola_imu_preintegration/ImuInitialCalibrator.h
+  include/mola_imu_preintegration/IMUIntegrationParams.h
+  include/mola_imu_preintegration/RotationIntegrationParams.h
+)
 
 mola_add_library(
   TARGET ${PROJECT_NAME}
