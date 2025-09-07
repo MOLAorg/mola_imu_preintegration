@@ -22,41 +22,70 @@
 
 #pragma once
 
-#include <mrpt/core/exceptions.h>
-#include <mrpt/obs/obs_frwds.h>
+#include <mola_imu_preintegration/ImuTransformer.h>
+#include <mrpt/obs/CObservationIMU.h>
 
 #include <cstdlib>
 #include <map>
-#include <memory>
+#include <optional>
 
 namespace mola
 {
-/** Provides a rough initial calibration and attitude for IMUs without proper
- * bias calibration.
+/** Provides a rough initial calibration and attitude for IMUs without a proper
+ *  bias calibration.
  *
  * \ingroup mola_imu_preintegration_grp
  */
 class ImuInitialCalibrator
 {
    public:
-    ImuInitialCalibrator(
-        const std::size_t required_samples,  // NOLINT
-        const double      max_samples_age)
-        : required_samples_(required_samples), max_samples_age_(max_samples_age)
+    ImuInitialCalibrator() = default;
+
+    struct Parameters
     {
-        ASSERT_(required_samples > 0);
-    }
+        Parameters() = default;
 
-    void add(const std::shared_ptr<const mrpt::obs::CObservationIMU>& obs);
+        std::size_t required_samples = 50;  //!< Minimum required samples
+        double      max_samples_age  = .75;  //!< Maximum samples age [seconds]
+        double      gravity          = 9.81;  //<! Gravity magnitude [m/s²]
+    };
 
-    [[nodiscard]] bool                       isReady() const;
-    [[nodiscard]] std::tuple<double, double> getPitchRoll() const;
+    Parameters parameters;
+
+    /// Initial calibration results from getCalibration()
+    struct Results
+    {
+        Results() = default;
+
+        mrpt::math::TVector3D bias_gyro{0, 0, 0};  //!< Gyroscope bias
+        mrpt::math::TVector3D bias_acc_b{0, 0, 0};  //!< Accelerometer bias, in base_link frame
+
+        /// Gyroscope additive noise standard deviation
+        mrpt::math::TVector3D noise_stddev_gyro{0, 0, 0};
+        ///  Accelerometer bias, already in the base_link/body frame
+        mrpt::math::TVector3D noise_stddev_acc{0, 0, 0};
+
+        double pitch = 0;  //!< Estimated pitch angle, assuming being at rest during calibration
+        double roll  = 0;  //!< Estimated roll angle, assuming being at rest during calibration
+
+        /// Prints to a string a human-readable representation of all values
+        std::string asString() const;
+    };
+
+    /// Inserts an IMU observation into the queue
+    void add(const mrpt::obs::CObservationIMU::Ptr& obs);
+
+    /// Returns true if there are already samples enough in the buffer to call getCalibration()
+    [[nodiscard]] bool isReady() const;
+
+    /// If enough samples are given, it computes the initial rough IMU calibration
+    [[nodiscard]] std::optional<Results> getCalibration() const;
 
    private:
-    std::size_t required_samples_;
-    double      max_samples_age_;
+    std::map<std::string /*sensorLabel*/, ImuTransformer> imu_transformers_;
 
-    std::map<double, std::shared_ptr<const mrpt::obs::CObservationIMU>> samples_;
+    /// Samples here have been already transformed to be on the base_link frame:
+    std::map<double, const mrpt::obs::CObservationIMU> samples_;
 };
 
 }  // namespace mola
