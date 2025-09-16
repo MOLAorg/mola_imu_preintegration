@@ -24,7 +24,7 @@
 #include <mrpt/math/TPoint3D.h>
 #include <mrpt/obs/obs_frwds.h>
 
-namespace mola
+namespace mola::imu
 {
 /** Transforms IMU readings from an arbitrary sensor pose to the vehicle reference "base_link".
  *
@@ -54,4 +54,4 @@ class ImuTransformer
     mrpt::math::TVector3D last_ang_vel_body_;
 };
 
-}  // namespace mola
+}  // namespace mola::imu

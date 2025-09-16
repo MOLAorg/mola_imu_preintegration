@@ -29,7 +29,7 @@
 
 #include <optional>
 
-namespace mola
+namespace mola::imu
 {
 /** Parameters needed by IMU integration routines to integrate acceleration and rotation.
  *
@@ -77,4 +77,4 @@ class ImuIntegrationParams
     std::optional<mrpt::poses::CPose3D> sensor_pose;
 };
 
-}  // namespace mola
+}  // namespace mola::imu

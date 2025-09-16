@@ -28,7 +28,7 @@
 
 #include <sstream>
 
-using namespace mola;
+using namespace mola::imu;
 
 void ImuInitialCalibrator::add(const mrpt::obs::CObservationIMU::Ptr& obs)
 {
@@ -68,7 +68,10 @@ mrpt::math::TVector3D stddev_from_variances(
 
 std::optional<ImuInitialCalibrator::Results> ImuInitialCalibrator::getCalibration() const
 {
-    if (!isReady()) { return {}; }
+    if (!isReady())
+    {
+        return {};
+    }
 
     auto forEachAcc = [this](const std::function<void(const mrpt::math::TVector3D& acc)>& f)
     {

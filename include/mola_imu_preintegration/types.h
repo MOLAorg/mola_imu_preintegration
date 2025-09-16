@@ -17,7 +17,7 @@
 #include <mrpt/math/CMatrixFixed.h>
 #include <mrpt/math/TPoint3D.h>
 
-namespace mola
+namespace mola::imu
 {
 
 using TimeStamp          = double;  //!< seconds in UNIX epoch
@@ -26,4 +26,4 @@ using LinearVelocity     = mrpt::math::TVector3D;
 using LinearAcceleration = mrpt::math::TVector3D;
 using AngularVelocity    = mrpt::math::TVector3D;
 
-}  // namespace mola
+}  // namespace mola::imu

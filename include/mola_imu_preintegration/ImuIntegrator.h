@@ -24,7 +24,7 @@
 #include <mrpt/containers/yaml.h>
 #include <mrpt/core/optional_ref.h>
 
-namespace mola
+namespace mola::imu
 {
 /** Integrates acceleration and gyroscope readings.
  *
@@ -116,4 +116,4 @@ mrpt::math::CMatrixDouble33 incremental_rotation(
     const mrpt::math::TVector3D& w, const ImuIntegrationParams& params, double dt,
     const mrpt::optional_ref<mrpt::math::CMatrixDouble33>& D_incrR_integratedOmega = std::nullopt);
 
-}  // namespace mola
+}  // namespace mola::imu

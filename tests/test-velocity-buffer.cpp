@@ -27,13 +27,13 @@
 
 #include <iostream>
 
-using namespace mola;
+using namespace mola::imu;
 
 namespace
 {
 void unit_test_basic_api()
 {
-    mola::LocalVelocityBuffer buffer;
+    mola::imu::LocalVelocityBuffer buffer;
 
     const double reference_time = 1755345252;
 
@@ -59,7 +59,7 @@ void unit_test_basic_api()
 
 void unit_test_basic_yaml()
 {
-    mola::LocalVelocityBuffer buffer;
+    mola::imu::LocalVelocityBuffer buffer;
 
     const double reference_time = 1755345252;
 
@@ -83,7 +83,7 @@ void unit_test_basic_yaml()
     std::cout << "Serialized YAML:\n" << yamlStr << "\n\n";
 
     // Deserialize from YAML
-    mola::LocalVelocityBuffer buffer2;
+    mola::imu::LocalVelocityBuffer buffer2;
     buffer2.fromYAML(mrpt::containers::yaml::FromText(yamlStr));
 
     std::cout << "Done parsing.\n";

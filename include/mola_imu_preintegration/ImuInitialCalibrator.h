@@ -29,7 +29,7 @@
 #include <map>
 #include <optional>
 
-namespace mola
+namespace mola::imu
 {
 /** Provides a rough initial calibration and attitude for IMUs without a proper
  *  bias calibration.
@@ -88,4 +88,4 @@ class ImuInitialCalibrator
     std::map<double, const mrpt::obs::CObservationIMU> samples_;
 };
 
-}  // namespace mola
+}  // namespace mola::imu

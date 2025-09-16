@@ -22,7 +22,7 @@
 #include <map>
 #include <optional>
 
-namespace mola
+namespace mola::imu
 {
 /** Holds a short window of local velocities, accelerations, and global orientation,
  * from external estimators and an IMU.
@@ -140,4 +140,4 @@ class LocalVelocityBuffer
 // So we can build libraries downstream in backward compatible way:
 #define MP2P_ICP_HAS_VELOCITY_BUFFER 1
 
-}  // namespace mola
+}  // namespace mola::imu

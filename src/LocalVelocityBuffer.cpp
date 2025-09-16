@@ -24,7 +24,7 @@
 #include <mrpt/poses/CPose3D.h>
 #include <mrpt/poses/Lie/SO.h>
 
-using namespace mola;
+using namespace mola::imu;
 
 void LocalVelocityBuffer::add_linear_velocity(
     const TimeStamp& time, const LinearVelocity& v_vehicle)

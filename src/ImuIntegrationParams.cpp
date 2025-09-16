@@ -21,7 +21,7 @@
 
 #include <mola_imu_preintegration/ImuIntegrationParams.h>
 
-using namespace mola;
+using namespace mola::imu;
 
 void ImuIntegrationParams::load_from(const mrpt::containers::yaml& cfg)
 {
