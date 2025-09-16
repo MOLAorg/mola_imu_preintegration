@@ -25,7 +25,9 @@ using namespace mola;
 
 void ImuIntegrationParams::load_from(const mrpt::containers::yaml& cfg)
 {
-    gyroBias = mrpt::math::TVector3D::FromVector(cfg["gyroBias"].toStdVector<double>());
+    MRPT_TODO("Finish missing fields!");
+
+    bias_gyro = mrpt::math::TVector3D::FromVector(cfg["bias_gyro"].toStdVector<double>());
 
     const auto poseQuat  = cfg["sensorLocationInVehicle"]["quaternion"].toStdVector<double>();
     const auto poseTrans = cfg["sensorLocationInVehicle"]["translation"].toStdVector<double>();
@@ -39,7 +41,7 @@ void ImuIntegrationParams::load_from(const mrpt::containers::yaml& cfg)
     if (pose != mrpt::poses::CPose3D::Identity())
     {
         // Store:
-        sensorPose = pose;
+        sensor_pose = pose;
     }
     else
     {

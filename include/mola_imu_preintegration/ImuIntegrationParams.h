@@ -21,6 +21,7 @@
 
 #pragma once
 
+#include <mola_imu_preintegration/types.h>
 #include <mrpt/containers/yaml.h>
 #include <mrpt/math/CMatrixFixed.h>
 #include <mrpt/math/TPoint3D.h>
@@ -50,30 +51,30 @@ class ImuIntegrationParams
     /// Loads all parameters from a YAML map node.
     void load_from(const mrpt::containers::yaml& cfg);
 
+    /// Gravity vector (units are m/s²), in the global gravity-aligned frame of coordinates.
+    LinearAcceleration gravity_vector = {0, 0, -9.81};
+
     /// Gyroscope (initial or constant) bias, in the local IMU frame of reference (units: rad/s).
-    mrpt::math::TVector3D gyroBias = {.0, .0, .0};
+    AngularVelocity bias_gyro = {.0, .0, .0};
 
     /// Gyroscope covariance (units of sigma are rad/s/√Hz )
-    mrpt::math::CMatrixDouble33 gyroCov = mrpt::math::CMatrixDouble33::Identity();
+    mrpt::math::CMatrixDouble33 cov_gyro = mrpt::math::CMatrixDouble33::Identity();
 
     /// Accelerometer (initial or constant) bias, in the local IMU frame of reference (units: m/s²).
-    mrpt::math::TVector3D accelerometerBias = {.0, .0, .0};
-
-    /// Gravity vector (units are m/s²), in the global frame of coordinates.
-    mrpt::math::TVector3D gravityVector = {0, 0, -9.81};
+    LinearAcceleration bias_acc = {.0, .0, .0};
 
     /// Accelerometer covariance (units of sigma are m/s²/√Hz )
-    mrpt::math::CMatrixDouble33 accCov = mrpt::math::CMatrixDouble33::Identity();
+    mrpt::math::CMatrixDouble33 cov_acc = mrpt::math::CMatrixDouble33::Identity();
 
     /// Integration covariance: jerk, that is, how much acceleration can change over time:
-    mrpt::math::CMatrixDouble33 integrationCov = mrpt::math::CMatrixDouble33::Identity();
+    // mrpt::math::CMatrixDouble33 cov_integration = mrpt::math::CMatrixDouble33::Identity();
 
     /** If provided, defines an IMU placed at a pose different than the vehicle origin of
      * coordinates.
-     * Default: IMU used as reference of the vehicle frame, i.e. sensorPose = SE(3) identity
+     * Default: IMU used as reference of the vehicle frame, i.e. sensor_pose = SE(3) identity
      * I_{4x4}).
      */
-    std::optional<mrpt::poses::CPose3D> sensorPose;
+    std::optional<mrpt::poses::CPose3D> sensor_pose;
 };
 
 }  // namespace mola

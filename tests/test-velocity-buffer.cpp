@@ -118,10 +118,10 @@ void unit_test_yaml_roundtrip()
     buf.parameters.tolerance_search_stamp = 1e-2;
     buf.set_reference_zero_time(123.456);
 
-    LocalVelocityBuffer::LinearVelocity     v{1.0, 2.0, 3.0};
-    LocalVelocityBuffer::AngularVelocity    w{0.1, 0.2, 0.3};
-    LocalVelocityBuffer::LinearAcceleration a{9.8, 0.0, -9.8};
-    LocalVelocityBuffer::SO3                R = mrpt::math::CMatrixDouble33::Identity();
+    LinearVelocity     v{1.0, 2.0, 3.0};
+    AngularVelocity    w{0.1, 0.2, 0.3};
+    LinearAcceleration a{9.8, 0.0, -9.8};
+    SO3                R = mrpt::math::CMatrixDouble33::Identity();
 
     buf.add_linear_velocity(123.400, v);
     buf.add_angular_velocity(123.410, w);

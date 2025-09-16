@@ -28,7 +28,7 @@ using namespace std::string_literals;
 
 static const char* yamlRotIntParams1 =
     R"###(# Config for gtsam::RotationIntegrationParams
-gyroBias: [-1.0e-4, 2.0e-4, -3.0e-4]
+bias_gyro: [-1.0e-4, 2.0e-4, -3.0e-4]
 sensorLocationInVehicle:
   quaternion: [0.0, 0.0, 0.0, 1.0]
   translation: [0.0, 0.0, 0.0]
@@ -39,11 +39,11 @@ static void test_rotation_integration()
     mola::ImuIntegrator ri;
     ri.initialize(mrpt::containers::yaml::FromText(yamlRotIntParams1));
 
-    ASSERT_EQUAL_(ri.parameters.gyroBias.x, -1.0e-4);
-    ASSERT_EQUAL_(ri.parameters.gyroBias.y, +2.0e-4);
-    ASSERT_EQUAL_(ri.parameters.gyroBias.z, -3.0e-4);
+    ASSERT_EQUAL_(ri.parameters.bias_gyro.x, -1.0e-4);
+    ASSERT_EQUAL_(ri.parameters.bias_gyro.y, +2.0e-4);
+    ASSERT_EQUAL_(ri.parameters.bias_gyro.z, -3.0e-4);
 
-    ASSERT_(!ri.parameters.sensorPose.has_value());  // since it's the Identity.
+    ASSERT_(!ri.parameters.sensor_pose.has_value());  // since it's the Identity.
     // const auto gtPose = mrpt::poses::CPose3D::Identity();
     // ASSERT_LT_(mrpt::poses::Lie::SE<3>::log(*ri.params_.sensorPose -
     // gtPose).norm(),1e-6);

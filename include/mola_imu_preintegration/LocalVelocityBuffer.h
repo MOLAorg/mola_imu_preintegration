@@ -14,6 +14,7 @@
 
 #pragma once
 
+#include <mola_imu_preintegration/types.h>
 #include <mrpt/containers/yaml.h>
 #include <mrpt/math/TPoint3D.h>
 #include <mrpt/poses/CPose3D.h>
@@ -38,12 +39,6 @@ class LocalVelocityBuffer
 {
    public:
     LocalVelocityBuffer() = default;
-
-    using TimeStamp          = double;  // seconds in UNIX epoch
-    using SO3                = mrpt::math::CMatrixDouble33;
-    using LinearVelocity     = mrpt::math::TVector3D;
-    using LinearAcceleration = mrpt::math::TVector3D;
-    using AngularVelocity    = mrpt::math::TVector3D;
 
     struct Parameters
     {

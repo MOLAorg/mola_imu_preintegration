@@ -56,12 +56,12 @@ mrpt::math::CMatrixDouble33 mola::incremental_rotation(
     using mrpt::math::TVector3D;
 
     // Bias:
-    TVector3D correctedW = w - params.gyroBias;
+    TVector3D correctedW = w - params.bias_gyro;
 
     // Translate to vehicle frame:
-    if (params.sensorPose.has_value())
+    if (params.sensor_pose.has_value())
     {
-        correctedW = params.sensorPose->rotateVector(correctedW);
+        correctedW = params.sensor_pose->rotateVector(correctedW);
     }
 
     // Integrate:
