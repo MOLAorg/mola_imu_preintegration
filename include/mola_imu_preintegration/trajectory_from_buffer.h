@@ -77,6 +77,9 @@ struct TrajectoryPoint
 /// stamp)
 using Trajectory = std::map<double, TrajectoryPoint>;
 
+/// Print a trajectory to a human-readable string (mostly for debugging)
+std::string trajectory_as_string(const Trajectory& traj);
+
 /**
  * @brief Reconstruct a trajectory from a LocalVelocityBuffer with IMU data.
  *

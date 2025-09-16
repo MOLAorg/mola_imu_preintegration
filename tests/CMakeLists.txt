@@ -12,3 +12,10 @@ mola_add_test(
   LINK_LIBRARIES
     mola::mola_imu_preintegration
 )
+
+mola_add_test(
+  TARGET  test-trajectory-from-buffer
+  SOURCES test-trajectory-from-buffer.cpp
+  LINK_LIBRARIES
+    mola::mola_imu_preintegration
+)

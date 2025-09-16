@@ -98,10 +98,20 @@ std::string TrajectoryPoint::asString() const
         << "\n  v    = " << optVecToStr(v)  //
         << "\n  w_b  = " << optVecToStr(w_b)  //
         << "\n  a_b  = " << optVecToStr(a_b)  //
-        << "\n  ac_b = " << optVecToStr(ac_b)  //
-        << "\n  alpha= " << vecToStr(alpha_b)  //
-        << "\n  j_b  = " << vecToStr(j_b)  //
-        << "\n}";
+        << "\n  ac_b = " << optVecToStr(ac_b) << "\n}";
+    //<< "\n  alpha= " << vecToStr(alpha_b)  // Not used much
+    //<< "\n  j_b  = " << vecToStr(j_b)   // Not used much
+    return oss.str();
+}
+
+std::string mola::imu::trajectory_as_string(const Trajectory& traj)
+{
+    std::ostringstream oss;
+    oss << "Trajectory with " << traj.size() << " frames:\n";
+    for (const auto& [t, p] : traj)
+    {
+        oss << mrpt::format(" t=%.04f: %s\n", t, p.asString().c_str());
+    }
     return oss.str();
 }
 
@@ -111,10 +121,11 @@ Trajectory mola::imu::trajectory_from_buffer(
 {
     Trajectory t;
 
-    MRPT_TODO("get acc bias");
-    const mrpt::math::TVector3D bias_acc  = {0, 0, 0};
-    const mrpt::math::TVector3D bias_gyro = {0, 0, 0};
-    const Eigen::Vector3d       gravity(0, 0, -9.81);
+    const auto& bias_acc  = imu_params.bias_acc;
+    const auto& bias_gyro = imu_params.bias_gyro;
+
+    const Eigen::Vector3d gravity(
+        imu_params.gravity_vector.x, imu_params.gravity_vector.y, imu_params.gravity_vector.z);
 
     // 1) Build the list of all timestamps that we will reconstruct:
     // {0, t_IMU}

@@ -55,32 +55,28 @@ void LocalVelocityBuffer::add_orientation(const TimeStamp& time, const SO3& atti
 
 void LocalVelocityBuffer::delete_too_old_entries(const TimeStamp& now)
 {
-    // Remove entries older than the max time window
-    for (auto it = linear_velocities_.begin(); it != linear_velocities_.end();)
-    {
-        if (now - it->first > parameters.max_time_window)
-        {
-            it = linear_velocities_.erase(it);
-        }
-        else
-        {
-            ++it;
-        }
-    }
+    const double max_time_window = parameters.max_time_window;
 
-    for (auto it = angular_velocities_.begin(); it != angular_velocities_.end();)
+    auto deleteOldEntries = [&](auto& map)
     {
-        if (now - it->first > parameters.max_time_window)
+        for (auto it = map.begin(); it != map.end();)
         {
-            it = angular_velocities_.erase(it);
+            if (now - it->first > max_time_window)
+            {
+                it = map.erase(it);
+            }
+            else
+            {
+                ++it;
+            }
         }
-        else
-        {
-            ++it;
-        }
-    }
+    };
+
+    deleteOldEntries(linear_velocities_);
+    deleteOldEntries(angular_velocities_);
+    deleteOldEntries(linear_accelerations_);
+    deleteOldEntries(orientations_);
 }
-
 auto LocalVelocityBuffer::collect_samples_around_reference_time(double half_time_span) const
     -> LocalVelocityBuffer::SampleHistory
 {
