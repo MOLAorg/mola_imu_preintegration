@@ -228,17 +228,11 @@ Trajectory mola::imu::trajectory_from_buffer(
     // proper acceleration in the body frame => coordinate acceleration in the body frame
     for (auto& [stamp, p] : t)
     {
-        if (p.a_b)
-        {
-            const auto gravity_b = p.R_ga->transpose() * gravity;
+        ASSERT_(p.a_b);
+        const auto gravity_b = p.R_ga->transpose() * gravity;
 
-            ASSERT_(p.a_b);
-            p.ac_b = *p.a_b + mrpt::math::TVector3D(gravity_b.x(), gravity_b.y(), gravity_b.z());
-        }
-        else
-        {
-            p.ac_b = {0, 0, 0};
-        }
+        ASSERT_(p.a_b);
+        p.ac_b = *p.a_b + mrpt::math::TVector3D(gravity_b.x(), gravity_b.y(), gravity_b.z());
     }
 
     // 7) (only for higher-order) Estimate jerk:
