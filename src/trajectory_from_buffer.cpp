@@ -20,8 +20,54 @@
  */
 
 #include <mola_imu_preintegration/trajectory_from_buffer.h>
+#include <mrpt/containers/find_closest.h>
+#include <mrpt/poses/Lie/SO.h>
+
+#include <Eigen/Dense>
+#include <type_traits>
 
 using namespace mola::imu;
+
+namespace
+{
+template <bool SourceIsConst = true>
+void execute_integration(
+    Trajectory&                           t,
+    const std::function<void(
+        std::conditional_t<SourceIsConst, const TrajectoryPoint&, TrajectoryPoint&> p0,
+        TrajectoryPoint& p1, double dt)>& update,
+    const double                          start_time = 0.0)
+{
+    for (auto it = t.find(start_time); it != t.end(); it++)
+    {
+        auto it_next = std::next(it);
+        if (it_next == t.end())
+        {
+            break;
+        }
+        auto&        p_prev = it->second;
+        auto&        p_this = it_next->second;
+        const double dt     = it_next->first - it->first;
+
+        update(p_prev, p_this, dt);
+    }
+    for (auto it = std::make_reverse_iterator(std::next(t.find(start_time))); it != t.rend(); ++it)
+    {
+        auto it_next = std::next(it);  // reverse_iterator trick
+        if (it_next == t.rend())
+        {
+            break;
+        }
+
+        auto&        p_prev = it->second;
+        auto&        p_this = it_next->second;
+        const double dt     = it_next->first - it->first;
+
+        update(p_prev, p_this, dt);
+    }
+};
+
+}  // namespace
 
 std::string TrajectoryPoint::asString() const
 {
@@ -57,4 +103,232 @@ std::string TrajectoryPoint::asString() const
         << "\n  j_b  = " << vecToStr(j_b)  //
         << "\n}";
     return oss.str();
+}
+
+Trajectory mola::imu::trajectory_from_buffer(
+    const LocalVelocityBuffer::SampleHistory& samples, const ImuIntegrationParams& imu_params,
+    bool use_higher_order)
+{
+    Trajectory t;
+
+    MRPT_TODO("get acc bias");
+    const mrpt::math::TVector3D bias_acc  = {0, 0, 0};
+    const mrpt::math::TVector3D bias_gyro = {0, 0, 0};
+    const Eigen::Vector3d       gravity(0, 0, -9.81);
+
+    // 1) Build the list of all timestamps that we will reconstruct:
+    // {0, t_IMU}
+    t[0] = TrajectoryPoint(mrpt::math::CMatrixDouble33::Identity(), {.0, .0, .0});
+
+    // 2) Fill (ω,a) from IMU:
+    for (const auto& [stamp, sample] : samples.by_time)
+    {
+        if (sample.w_b.has_value() && sample.a_b.has_value())
+        {
+            t[stamp].w_b = *sample.w_b - bias_gyro;
+            t[stamp].a_b = *sample.a_b - bias_acc;
+        }
+    }
+
+    // and assign the closest IMU reading to t=0:
+    t[0].w_b = mrpt::containers::find_closest(samples.by_type.w_b, 0.0)->second - bias_gyro;
+    t[0].a_b = mrpt::containers::find_closest(samples.by_type.a_b, 0.0)->second - bias_acc;
+
+    // 3) Copy the closest gravity-aligned hints on global orientations:
+    std::optional<double> stamp_first_R_ga;
+    for (const auto& [stamp, so3] : samples.by_type.q)
+    {
+        t[stamp].R_ga = so3;
+        if (!stamp_first_R_ga)
+        {
+            stamp_first_R_ga = stamp;
+        }
+    }
+    ASSERTMSG_(
+        stamp_first_R_ga.has_value(),
+        "At least one entry with gravity-aligned orientation is needed for IMU integration");
+
+    // and assign the closest IMU reading to this frame:
+    t[*stamp_first_R_ga].w_b =
+        mrpt::containers::find_closest(samples.by_type.w_b, *stamp_first_R_ga)->second - bias_gyro;
+    t[*stamp_first_R_ga].a_b =
+        mrpt::containers::find_closest(samples.by_type.a_b, *stamp_first_R_ga)->second - bias_acc;
+
+    // 7) (only for higher-order) Estimate alpha:
+    if (use_higher_order)
+    {
+        // Estimate jerk & alpha:
+        execute_integration<false>(
+            t,
+            [](TrajectoryPoint& p0, TrajectoryPoint& p1, double dt)
+            {
+                ASSERT_(p0.w_b && p1.w_b);
+                p0.alpha_b = p1.alpha_b = (*p1.w_b - *p0.w_b) / dt;
+            });
+    }
+
+    // 4) Integrate R forward / backwards in time:
+    if (use_higher_order)
+    {
+        execute_integration<>(
+            t,
+            [](const TrajectoryPoint& p0, TrajectoryPoint& p1, double dt)
+            {
+                ASSERT_(p0.w_b.has_value());
+                const mrpt::math::TVector3D  w     = *p0.w_b;
+                const mrpt::math::TVector3D& alpha = p0.alpha_b;
+
+                const double dt2 = dt * dt;
+
+                p1.pose.setRotationMatrix(
+                    p0.pose.getRotationMatrix() *
+                    mrpt::poses::Lie::SO<3>::exp(
+                        (w * dt + alpha * 0.5 * dt2)
+                            .asVector<mrpt::math::CVectorFixedDouble<3>>()));
+            });
+    }
+    else
+    {
+        execute_integration<>(
+            t,
+            [](const TrajectoryPoint& p0, TrajectoryPoint& p1, double dt)
+            {
+                ASSERT_(p0.w_b.has_value());
+                const mrpt::math::TVector3D w = *p0.w_b;
+
+                p1.pose.setRotationMatrix(
+                    p0.pose.getRotationMatrix() *
+                    mrpt::poses::Lie::SO<3>::exp(
+                        (w * dt).asVector<mrpt::math::CVectorFixedDouble<3>>()));
+            });
+    }
+
+    // 5) Integrate R_gravity_aligned:
+    execute_integration<>(
+        t,
+        [](const TrajectoryPoint& p0, TrajectoryPoint& p1, [[maybe_unused]] double dt)
+        {
+            p1.R_ga = (*p0.R_ga) *
+                      ((p0.pose.getRotationMatrix()).inverse() * (p1.pose.getRotationMatrix()));
+        },
+        stamp_first_R_ga.value());
+
+    // 6) convert acceleration:
+    // proper acceleration in the body frame => coordinate acceleration in the body frame
+    for (auto& [stamp, p] : t)
+    {
+        if (p.a_b)
+        {
+            const auto gravity_b = p.R_ga->transpose() * gravity;
+
+            ASSERT_(p.a_b);
+            p.ac_b = *p.a_b + mrpt::math::TVector3D(gravity_b.x(), gravity_b.y(), gravity_b.z());
+        }
+        else
+        {
+            p.ac_b = {0, 0, 0};
+        }
+    }
+
+    // 7) (only for higher-order) Estimate jerk:
+    if (use_higher_order)
+    {
+        // Estimate jerk & alpha:
+        execute_integration<false>(
+            t,
+            [](TrajectoryPoint& p0, TrajectoryPoint& p1, double dt)
+            {
+                ASSERT_(p0.w_b && p1.w_b);
+                ASSERT_(p0.ac_b && p1.ac_b);
+                p0.j_b = p1.j_b = (*p1.ac_b - *p0.ac_b) / dt;
+            });
+    }
+
+    // 7) Copy the closest velocity from the given samples:
+    std::optional<double> stamp_first_v_b;
+    for (const auto& [stamp, v_b] : samples.by_type.v_b)
+    {
+        t[stamp].v = v_b;
+        if (!stamp_first_v_b)
+        {
+            stamp_first_v_b = stamp;
+        }
+    }
+    ASSERTMSG_(
+        stamp_first_v_b.has_value(),
+        "At least one entry with velocity is needed for IMU integration");
+
+    // 8) Integrate v:
+    if (use_higher_order)
+    {
+        execute_integration<>(
+            t,
+            [](const TrajectoryPoint& p0, TrajectoryPoint& p1, [[maybe_unused]] double dt)
+            {
+                ASSERT_(p0.v.has_value());
+                const double dt2 = dt * dt;
+                p1.v = *p0.v + p0.pose.rotateVector(p0.ac_b.value() * dt + p0.j_b * dt2 * 0.5);
+            },
+            stamp_first_v_b.value());
+    }
+    else
+    {
+        execute_integration<>(
+            t,
+            [](const TrajectoryPoint& p0, TrajectoryPoint& p1, [[maybe_unused]] double dt)
+            {
+                ASSERT_(p0.v.has_value());
+                p1.v = *p0.v + p0.pose.rotateVector(p0.ac_b.value() * dt);
+            },
+            stamp_first_v_b.value());
+    }
+
+    // 9) Integrate p:
+    if (use_higher_order)
+    {
+        execute_integration<>(
+            t,
+            [](const TrajectoryPoint& p0, TrajectoryPoint& p1, [[maybe_unused]] double dt)
+            {
+                ASSERT_(p0.v.has_value());
+                const double dt2 = dt * dt;
+                const double dt3 = dt2 * dt;
+
+                const auto pt =  //
+                    p0.pose.translation() +  //
+                    p0.v.value() * dt +
+                    p0.pose.rotateVector(
+                        p0.ac_b.value() * dt2 * 0.5 +  //
+                        p0.j_b * dt3 * (1.0 / 6.0));
+                p1.pose.x(pt.x);
+                p1.pose.y(pt.y);
+                p1.pose.z(pt.z);
+            });
+    }
+    else
+    {
+        execute_integration<>(
+            t,
+            [](const TrajectoryPoint& p0, TrajectoryPoint& p1, [[maybe_unused]] double dt)
+            {
+                ASSERT_(p0.v.has_value());
+                const double dt2 = dt * dt;
+
+                const auto pt = p0.pose.translation() + p0.v.value() * dt +
+                                p0.pose.rotateVector(p0.ac_b.value() * dt2 * 0.5);
+                p1.pose.x(pt.x);
+                p1.pose.y(pt.y);
+                p1.pose.z(pt.z);
+            });
+    }
+
+#if 0
+    // Debug print
+    for (auto& [stamp, p] : t)
+    {
+        std::cout << "t=" << stamp << " " << p.asString() << "\n";
+    }
+#endif
+
+    return t;
 }

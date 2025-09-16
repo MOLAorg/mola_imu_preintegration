@@ -21,15 +21,15 @@
 
 #pragma once
 
+#include <mola_imu_preintegration/ImuIntegrationParams.h>
 #include <mola_imu_preintegration/LocalVelocityBuffer.h>
 #include <mola_imu_preintegration/types.h>
 
 namespace mola::imu
 {
-
 /** Each of the recovered-trajectory key-points.
- * Some members are std::optional just to help in the process of reconstruction, to know which are
- * already computed.
+ * Some members are std::optional just to help in the process of reconstruction, to know which
+ * are already computed.
  *
  * \ingroup mola_imu_preintegration_grp
  */
@@ -72,5 +72,25 @@ struct TrajectoryPoint
 
     std::string asString() const;
 };
+
+/// A recovered trajectory, indexed by relative time in seconds (t=0 is the scan reference
+/// stamp)
+using Trajectory = std::map<double, TrajectoryPoint>;
+
+/**
+ * @brief Reconstruct a trajectory from a LocalVelocityBuffer with IMU data.
+ *
+ * The exact reconstruction algorithm is described in the paper [TBD], but in short,
+ * it consists of integrating the IMU data using as anchor at least one global gravity-aligned
+ * orientation and one linear velocity.
+ *
+ * @param samples IMU and other LIO data samples
+ * @param imu_params IMU integration parameters, in particular, biases
+ * @param use_higher_order Whether to use higher-order integration (jerk)
+ * @return Trajectory With the reconstructed trajectory
+ */
+Trajectory trajectory_from_buffer(
+    const LocalVelocityBuffer::SampleHistory& samples, const ImuIntegrationParams& imu_params,
+    bool use_higher_order = false);
 
 }  // namespace mola::imu
