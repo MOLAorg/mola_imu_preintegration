@@ -13,17 +13,17 @@
 */
 
 /**
- * @file   RotationIntegrationParams.cpp
- * @brief  Parameters for angular velocity integration.
+ * @file   ImuIntegrationParams.cpp
+ * @brief  Parameters for IMU preintegration.
  * @author Jose Luis Blanco Claraco
- * @date   Sep 20, 2021
+ * @date   Sep 19, 2021
  */
 
-#include <mola_imu_preintegration/RotationIntegrationParams.h>
+#include <mola_imu_preintegration/ImuIntegrationParams.h>
 
 using namespace mola;
 
-void RotationIntegrationParams::load_from(const mrpt::containers::yaml& cfg)
+void ImuIntegrationParams::load_from(const mrpt::containers::yaml& cfg)
 {
     gyroBias = mrpt::math::TVector3D::FromVector(cfg["gyroBias"].toStdVector<double>());
 

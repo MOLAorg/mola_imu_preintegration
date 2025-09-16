@@ -1,8 +1,8 @@
 # mola_imu_preintegration
-Integrator of IMU angular velocity readings.
+A lightweight package for IMU preintegration routines, without depending on GTSAM.
 
 This repository provides:
-* `IMUIntegrator` and `RotationIntegrator`: C++ classes to integrate IMU accelerations and angular velocities.
+* `IMUIntegrator`: A C++ class to integrate IMU accelerations and angular velocities.
 
 ## Build and install
 Refer to the [root MOLA repository](https://github.com/MOLAorg/mola).

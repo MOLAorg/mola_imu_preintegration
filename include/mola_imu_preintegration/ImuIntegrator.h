@@ -13,25 +13,25 @@
 */
 
 /**
- * @file   RotationIntegrator.h
+ * @file   ImuIntegrator.h
  * @brief  Integrator of IMU accelerations and angular velocity readings.
  * @author Jose Luis Blanco Claraco
  * @date   Sep 20, 2021
  */
 #pragma once
 
-#include <mola_imu_preintegration/RotationIntegrationParams.h>
+#include <mola_imu_preintegration/ImuIntegrationParams.h>
 #include <mrpt/containers/yaml.h>
 #include <mrpt/core/optional_ref.h>
 
 namespace mola
 {
-/** Integrates gyroscope angular velocity readings.
+/** Integrates acceleration and gyroscope readings.
  *
- *  Bias is assumed to be constant, although the user is free of updating it at
- * any moment by accessing params_.
+ * Bias is assumed to be constant during the short periods this preintegrator is expected to be
+ * used.
  *
- * See IMUIntegrationParams for a list of related papers explaining the methods
+ * See ImuIntegrationParams for a list of related papers explaining the methods
  * and parameters.
  *
  * Usage:
@@ -43,24 +43,26 @@ namespace mola
  * - (5) Go to (2).
  *
  * \note Initially based in part on GTSAM sources gtsam::PreintegratedRotation.
+ * \note Based on Forster, C., Carlone, L., Dellaert, F., & Scaramuzza, D. (2015). IMU
+ *       preintegration on manifold for efficient visual-inertial maximum-a-posteriori estimation.
  *
  * \sa IMUIntegrator
  * \ingroup mola_imu_preintegration_grp
  */
-class RotationIntegrator
+class ImuIntegrator
 {
    public:
-    RotationIntegrator() = default;
+    ImuIntegrator() = default;
 
     struct IntegrationState
     {
         IntegrationState() = default;
 
         /// Time interval from i to j
-        double deltaTij_ = 0;
+        double deltaTij = 0;
 
         /// Preintegrated relative orientation (in frame i)
-        mrpt::math::CMatrixDouble33 deltaRij_ = mrpt::math::CMatrixDouble33::Identity();
+        mrpt::math::CMatrixDouble33 deltaRij = mrpt::math::CMatrixDouble33::Identity();
 
         /// Jacobian of preintegrated rotation w.r.t. angular rate bias
         // (TODO)
@@ -93,7 +95,8 @@ class RotationIntegrator
      */
     void integrate_measurement(const mrpt::math::TVector3D& w, double dt);
 
-    RotationIntegrationParams params_;
+    /// All public parameters for the integrator, including biases
+    ImuIntegrationParams parameters;
 
     /** @} */
 
@@ -110,7 +113,7 @@ class RotationIntegrator
  * \ingroup mola_imu_preintegration_grp
  */
 mrpt::math::CMatrixDouble33 incremental_rotation(
-    const mrpt::math::TVector3D& w, const RotationIntegrationParams& params, double dt,
+    const mrpt::math::TVector3D& w, const ImuIntegrationParams& params, double dt,
     const mrpt::optional_ref<mrpt::math::CMatrixDouble33>& D_incrR_integratedOmega = std::nullopt);
 
 }  // namespace mola

@@ -5,3 +5,10 @@ mola_add_test(
   LINK_LIBRARIES
     mola::mola_imu_preintegration
 )
+
+mola_add_test(
+  TARGET  test-velocity-buffer
+  SOURCES test-velocity-buffer.cpp
+  LINK_LIBRARIES
+    mola::mola_imu_preintegration
+)
