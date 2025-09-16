@@ -20,10 +20,11 @@
 namespace mola::imu
 {
 
-using TimeStamp          = double;  //!< seconds in UNIX epoch
-using SO3                = mrpt::math::CMatrixDouble33;
-using LinearVelocity     = mrpt::math::TVector3D;
-using LinearAcceleration = mrpt::math::TVector3D;
-using AngularVelocity    = mrpt::math::TVector3D;
+using TimeStamp           = double;  //!< seconds in UNIX epoch
+using SO3                 = mrpt::math::CMatrixDouble33;
+using LinearVelocity      = mrpt::math::TVector3D;
+using LinearAcceleration  = mrpt::math::TVector3D;
+using AngularAcceleration = mrpt::math::TVector3D;
+using AngularVelocity     = mrpt::math::TVector3D;
 
 }  // namespace mola::imu

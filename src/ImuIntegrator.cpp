@@ -40,7 +40,7 @@ void ImuIntegrator::reset_integration()
 
 void ImuIntegrator::integrate_measurement(const mrpt::math::TVector3D& w, double dt)
 {
-    const auto incrR = mola::incremental_rotation(w, parameters, dt);
+    const auto incrR = mola::imu::incremental_rotation(w, parameters, dt);
 
     // Update integration state:
     state_.deltaTij += dt;
@@ -49,7 +49,7 @@ void ImuIntegrator::integrate_measurement(const mrpt::math::TVector3D& w, double
     // TODO: Update Jacobian
 }
 
-mrpt::math::CMatrixDouble33 mola::incremental_rotation(
+mrpt::math::CMatrixDouble33 mola::imu::incremental_rotation(
     const mrpt::math::TVector3D& w, const ImuIntegrationParams& params, double dt,
     const mrpt::optional_ref<mrpt::math::CMatrixDouble33>& D_incrR_integratedOmega)
 {

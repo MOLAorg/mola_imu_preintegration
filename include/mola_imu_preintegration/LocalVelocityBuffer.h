@@ -137,7 +137,4 @@ class LocalVelocityBuffer
     void delete_too_old_entries(const TimeStamp& now);
 };
 
-// So we can build libraries downstream in backward compatible way:
-#define MP2P_ICP_HAS_VELOCITY_BUFFER 1
-
 }  // namespace mola::imu
