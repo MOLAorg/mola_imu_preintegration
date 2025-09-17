@@ -86,7 +86,7 @@ auto LocalVelocityBuffer::collect_samples_around_reference_time(double half_time
     const double t1 = reference_zero_time + half_time_span;
 
     auto collect_from_map =
-        [&](const auto& srcMap, auto Sample::* field, auto SamplesByTime::* fieldByTime)
+        [&](const auto& srcMap, auto Sample::*field, auto SamplesByTime::*fieldByTime)
     {
         for (const auto& [ts, val] : srcMap)
         {

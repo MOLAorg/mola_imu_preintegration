@@ -34,9 +34,9 @@ mrpt::obs::CObservationIMU ImuTransformer::process(const mrpt::obs::CObservation
 
     // Transform angular velocity:
     const auto ang_vel_sensor = mrpt::math::TVector3D(  //
-      raw_imu.get(mrpt::obs::IMU_WX),                //
-      raw_imu.get(mrpt::obs::IMU_WY),                //
-      raw_imu.get(mrpt::obs::IMU_WZ));
+        raw_imu.get(mrpt::obs::IMU_WX),  //
+        raw_imu.get(mrpt::obs::IMU_WY),  //
+        raw_imu.get(mrpt::obs::IMU_WZ));
 
     const auto ang_vel_body = imu.sensorPose.rotateVector(ang_vel_sensor);
     imu.set(mrpt::obs::IMU_WX, ang_vel_body.x);
@@ -60,9 +60,9 @@ mrpt::obs::CObservationIMU ImuTransformer::process(const mrpt::obs::CObservation
 
     // Transform acceleration:
     const auto raw_accel_sensor = mrpt::math::TVector3D(  //
-      raw_imu.get(mrpt::obs::IMU_X_ACC),                //
-      raw_imu.get(mrpt::obs::IMU_Y_ACC),                //
-      raw_imu.get(mrpt::obs::IMU_Z_ACC));
+        raw_imu.get(mrpt::obs::IMU_X_ACC),  //
+        raw_imu.get(mrpt::obs::IMU_Y_ACC),  //
+        raw_imu.get(mrpt::obs::IMU_Z_ACC));
 
     //  a_imu  = a_body + α×t + ω×(ω×t)  ==>
     //  a_body = a_imu - α×t - ω×(ω×t)

@@ -39,9 +39,8 @@ struct TrajectoryPoint
 
     /// Constructor from a gravity-aligned rotation and a position
     TrajectoryPoint(const mrpt::math::CMatrixDouble33& R_, const mrpt::math::TVector3D& p_)
-        : pose(
-              mrpt::poses::CPose3D::FromRotationAndTranslation(
-                  R_, mrpt::math::CVectorFixedDouble<3>(p_)))
+        : pose(mrpt::poses::CPose3D::FromRotationAndTranslation(
+              R_, mrpt::math::CVectorFixedDouble<3>(p_)))
     {
     }
 

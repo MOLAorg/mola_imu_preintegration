@@ -5,7 +5,7 @@ AlignAfterOpenBracket: AlwaysBreak # Values: Align, DontAlign, AlwaysBreak
 AlignConsecutiveAssignments: true
 AlignConsecutiveDeclarations: true
 AlignTrailingComments: false # Should be off, causes many dummy problems!!
-AllowShortBlocksOnASingleLine: true
+AllowShortBlocksOnASingleLine: false
 BreakBeforeBraces: Allman
 ColumnLimit: 100
 IndentCaseLabels: true
