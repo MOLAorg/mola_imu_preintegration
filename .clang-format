@@ -1,22 +1,22 @@
-Language:        Cpp
+Language: Cpp
 BasedOnStyle: Google
 # ---
 AlignAfterOpenBracket: AlwaysBreak # Values: Align, DontAlign, AlwaysBreak
 AlignConsecutiveAssignments: true
 AlignConsecutiveDeclarations: true
 AlignTrailingComments: false # Should be off, causes many dummy problems!!
-AllowShortBlocksOnASingleLine: false
+AllowShortBlocksOnASingleLine: true
 BreakBeforeBraces: Allman
 ColumnLimit: 100
 IndentCaseLabels: true
-IndentWidth:     4
+IndentWidth: 4
 IndentWrappedFunctionNames: true
 MaxEmptyLinesToKeep: 1
 NamespaceIndentation: None
 DerivePointerAlignment: false
-ReflowComments:  true # Should be true, otherwise clang-format doesn't touch comments
-SortIncludes:    true
+ReflowComments: true # Should be true, otherwise clang-format doesn't touch comments
+SortIncludes: true
 SpaceBeforeAssignmentOperators: true
-Standard:        Cpp11
-TabWidth:        4
-UseTab:          Never # Available options are Never, Always, ForIndentation
+Standard: Cpp11
+TabWidth: 4
+UseTab: Never # Available options are Never, Always, ForIndentation
