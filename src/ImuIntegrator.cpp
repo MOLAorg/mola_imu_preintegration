@@ -13,53 +13,56 @@
 */
 
 /**
- * @file   RotationIntegrator.cpp
+ * @file   ImuIntegrator.cpp
  * @brief  Integrator of IMU accelerations and angular velocity readings.
  * @author Jose Luis Blanco Claraco
  * @date   Sep 20, 2021
  */
 
-#include <mola_imu_preintegration/RotationIntegrator.h>
+#include <mola_imu_preintegration/ImuIntegrator.h>
 #include <mrpt/poses/Lie/SO.h>
 
-using namespace mola;
+using namespace mola::imu;
 
-void RotationIntegrator::initialize(const mrpt::containers::yaml& cfg)
+void ImuIntegrator::initialize(const mrpt::containers::yaml& cfg)
 {
     reset_integration();
 
     // Load params:
-    params_.load_from(cfg);
+    parameters.load_from(cfg);
 }
 
-void RotationIntegrator::reset_integration()
+void ImuIntegrator::reset_integration()
 {
     // reset:
     state_ = IntegrationState();
 }
 
-void RotationIntegrator::integrate_measurement(const mrpt::math::TVector3D& w, double dt)
+void ImuIntegrator::integrate_measurement(const mrpt::math::TVector3D& w, double dt)
 {
-    const auto incrR = mola::incremental_rotation(w, params_, dt);
+    const auto incrR = mola::imu::incremental_rotation(w, parameters, dt);
 
     // Update integration state:
-    state_.deltaTij_ += dt;
-    state_.deltaRij_ = state_.deltaRij_ * incrR;
+    state_.deltaTij += dt;
+    state_.deltaRij = state_.deltaRij * incrR;
 
     // TODO: Update Jacobian
 }
 
-mrpt::math::CMatrixDouble33 mola::incremental_rotation(
-    const mrpt::math::TVector3D& w, const RotationIntegrationParams& params, double dt,
+mrpt::math::CMatrixDouble33 mola::imu::incremental_rotation(
+    const mrpt::math::TVector3D& w, const ImuIntegrationParams& params, double dt,
     const mrpt::optional_ref<mrpt::math::CMatrixDouble33>& D_incrR_integratedOmega)
 {
     using mrpt::math::TVector3D;
 
     // Bias:
-    TVector3D correctedW = w - params.gyroBias;
+    TVector3D correctedW = w - params.bias_gyro;
 
     // Translate to vehicle frame:
-    if (params.sensorPose.has_value()) correctedW = params.sensorPose->rotateVector(correctedW);
+    if (params.sensor_pose.has_value())
+    {
+        correctedW = params.sensor_pose->rotateVector(correctedW);
+    }
 
     // Integrate:
     const TVector3D w_dt = correctedW * dt;

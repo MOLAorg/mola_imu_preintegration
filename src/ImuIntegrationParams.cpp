@@ -13,19 +13,21 @@
 */
 
 /**
- * @file   RotationIntegrationParams.cpp
- * @brief  Parameters for angular velocity integration.
+ * @file   ImuIntegrationParams.cpp
+ * @brief  Parameters for IMU preintegration.
  * @author Jose Luis Blanco Claraco
- * @date   Sep 20, 2021
+ * @date   Sep 19, 2021
  */
 
-#include <mola_imu_preintegration/RotationIntegrationParams.h>
+#include <mola_imu_preintegration/ImuIntegrationParams.h>
 
-using namespace mola;
+using namespace mola::imu;
 
-void RotationIntegrationParams::load_from(const mrpt::containers::yaml& cfg)
+void ImuIntegrationParams::load_from(const mrpt::containers::yaml& cfg)
 {
-    gyroBias = mrpt::math::TVector3D::FromVector(cfg["gyroBias"].toStdVector<double>());
+    MRPT_TODO("Finish missing fields!");
+
+    bias_gyro = mrpt::math::TVector3D::FromVector(cfg["bias_gyro"].toStdVector<double>());
 
     const auto poseQuat  = cfg["sensorLocationInVehicle"]["quaternion"].toStdVector<double>();
     const auto poseTrans = cfg["sensorLocationInVehicle"]["translation"].toStdVector<double>();
@@ -39,7 +41,7 @@ void RotationIntegrationParams::load_from(const mrpt::containers::yaml& cfg)
     if (pose != mrpt::poses::CPose3D::Identity())
     {
         // Store:
-        sensorPose = pose;
+        sensor_pose = pose;
     }
     else
     {

@@ -24,7 +24,7 @@
 #include <mrpt/math/TPoint3D.h>
 #include <mrpt/obs/obs_frwds.h>
 
-namespace mola
+namespace mola::imu
 {
 /** Transforms IMU readings from an arbitrary sensor pose to the vehicle reference "base_link".
  *
@@ -35,6 +35,7 @@ namespace mola
  * frame.
  *
  * Note that bias is *not* substracted here, it must be done by the caller.
+ * Also, gravity is not substracted here since this class has no knowledge of global orientation.
  *
  * Since this class has a state (the stamp of the last observation), one object must be instantiated
  * for each IMU sensor.
@@ -53,4 +54,4 @@ class ImuTransformer
     mrpt::math::TVector3D last_ang_vel_body_;
 };
 
-}  // namespace mola
+}  // namespace mola::imu

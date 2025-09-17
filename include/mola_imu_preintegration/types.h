@@ -12,13 +12,19 @@
  alone or in combination with the complete SLAM system.
 */
 
-/**
- * @file   IMUIntegrationParams.cpp
- * @brief  Parameters for IMU preintegration.
- * @author Jose Luis Blanco Claraco
- * @date   Sep 19, 2021
- */
+#pragma once
 
-#include <mola_imu_preintegration/IMUIntegrationParams.h>
+#include <mrpt/math/CMatrixFixed.h>
+#include <mrpt/math/TPoint3D.h>
 
-using namespace mola;
+namespace mola::imu
+{
+
+using TimeStamp           = double;  //!< seconds in UNIX epoch
+using SO3                 = mrpt::math::CMatrixDouble33;
+using LinearVelocity      = mrpt::math::TVector3D;
+using LinearAcceleration  = mrpt::math::TVector3D;
+using AngularAcceleration = mrpt::math::TVector3D;
+using AngularVelocity     = mrpt::math::TVector3D;
+
+}  // namespace mola::imu

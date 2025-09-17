@@ -26,18 +26,20 @@ find_package(mrpt-obs)
 # define lib:
 set(LIB_SRCS
   src/ImuInitialCalibrator.cpp
-  src/IMUIntegrationParams.cpp
+  src/ImuIntegrationParams.cpp
+  src/ImuIntegrator.cpp
   src/ImuTransformer.cpp
+  src/LocalVelocityBuffer.cpp
   src/register.cpp
-  src/RotationIntegrationParams.cpp
-  src/RotationIntegrator.cpp
+  src/trajectory_from_buffer.cpp
 )
 set(LIB_PUBLIC_HDRS
   include/mola_imu_preintegration/ImuInitialCalibrator.h
-  include/mola_imu_preintegration/IMUIntegrationParams.h
+  include/mola_imu_preintegration/ImuIntegrationParams.h
+  include/mola_imu_preintegration/ImuIntegrator.h
   include/mola_imu_preintegration/ImuTransformer.h
-  include/mola_imu_preintegration/RotationIntegrationParams.h
-  include/mola_imu_preintegration/RotationIntegrator.h
+  include/mola_imu_preintegration/LocalVelocityBuffer.h
+  include/mola_imu_preintegration/trajectory_from_buffer.h
 )
 
 mola_add_library(

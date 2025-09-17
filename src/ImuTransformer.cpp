@@ -26,7 +26,7 @@
 #include <mrpt/math/ops_containers.h>
 #include <mrpt/obs/CObservationIMU.h>
 
-using namespace mola;
+using namespace mola::imu;
 
 mrpt::obs::CObservationIMU ImuTransformer::process(const mrpt::obs::CObservationIMU& raw_imu)
 {

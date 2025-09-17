@@ -19,7 +19,7 @@
  * @date   Sep 21, 2021
  */
 
-#include <mola_imu_preintegration/RotationIntegrator.h>
+#include <mola_imu_preintegration/ImuIntegrator.h>
 #include <mrpt/poses/Lie/SE.h>
 
 #include <iostream>
@@ -28,7 +28,7 @@ using namespace std::string_literals;
 
 static const char* yamlRotIntParams1 =
     R"###(# Config for gtsam::RotationIntegrationParams
-gyroBias: [-1.0e-4, 2.0e-4, -3.0e-4]
+bias_gyro: [-1.0e-4, 2.0e-4, -3.0e-4]
 sensorLocationInVehicle:
   quaternion: [0.0, 0.0, 0.0, 1.0]
   translation: [0.0, 0.0, 0.0]
@@ -36,14 +36,14 @@ sensorLocationInVehicle:
 
 static void test_rotation_integration()
 {
-    mola::RotationIntegrator ri;
+    mola::imu::ImuIntegrator ri;
     ri.initialize(mrpt::containers::yaml::FromText(yamlRotIntParams1));
 
-    ASSERT_EQUAL_(ri.params_.gyroBias.x, -1.0e-4);
-    ASSERT_EQUAL_(ri.params_.gyroBias.y, +2.0e-4);
-    ASSERT_EQUAL_(ri.params_.gyroBias.z, -3.0e-4);
+    ASSERT_EQUAL_(ri.parameters.bias_gyro.x, -1.0e-4);
+    ASSERT_EQUAL_(ri.parameters.bias_gyro.y, +2.0e-4);
+    ASSERT_EQUAL_(ri.parameters.bias_gyro.z, -3.0e-4);
 
-    ASSERT_(!ri.params_.sensorPose.has_value());  // since it's the Identity.
+    ASSERT_(!ri.parameters.sensor_pose.has_value());  // since it's the Identity.
     // const auto gtPose = mrpt::poses::CPose3D::Identity();
     // ASSERT_LT_(mrpt::poses::Lie::SE<3>::log(*ri.params_.sensorPose -
     // gtPose).norm(),1e-6);
@@ -52,8 +52,8 @@ static void test_rotation_integration()
     auto lambdaAssertInitialState = [&ri]()
     {
         const auto& s = ri.current_integration_state();
-        ASSERT_LT_((s.deltaRij_ - mrpt::math::CMatrixDouble33::Identity()).norm(), 1e-6);
-        ASSERT_EQUAL_(s.deltaTij_, .0);
+        ASSERT_LT_((s.deltaRij - mrpt::math::CMatrixDouble33::Identity()).norm(), 1e-6);
+        ASSERT_EQUAL_(s.deltaTij, .0);
     };
 
     lambdaAssertInitialState();
@@ -69,8 +69,8 @@ static void test_rotation_integration()
         const auto& s     = ri.current_integration_state();
         const auto  gtRot = mrpt::poses::CPose3D::FromYawPitchRoll(6.0, 0, 0);
 
-        ASSERT_LT_((s.deltaRij_ - gtRot.getRotationMatrix()).norm(), 1e-2);
-        ASSERT_NEAR_(s.deltaTij_, 2.0, 1e-3);
+        ASSERT_LT_((s.deltaRij - gtRot.getRotationMatrix()).norm(), 1e-2);
+        ASSERT_NEAR_(s.deltaTij, 2.0, 1e-3);
     }
 
     // reset:
