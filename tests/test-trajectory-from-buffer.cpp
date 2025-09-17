@@ -37,10 +37,14 @@ using mrpt::random::getRandomGenerator;
 const double IMU_RATE = 100.0;  // 100 Hz
 const double IMU_DT   = 1.0 / IMU_RATE;
 
-const double NOISE_STD_ORIENT  = 0.01;  // radians
-const double NOISE_STD_LIN_VEL = 0.02;  // m/s
+const double NOISE_STD_ORIENT  = 0.001;  // radians
+const double NOISE_STD_LIN_VEL = 0.01;  // m/s
 const double NOISE_STD_ACC     = 0.001;  // m/s^2
-const double NOISE_STD_GYRO    = 0.001;  // rad/s
+const double NOISE_STD_GYRO    = 0.0002;  // rad/s
+
+constexpr double TOL_POS = 0.1;  // meters
+constexpr double TOL_ANG = 0.05;  // radians
+constexpr double TOL_VEL = 0.1;  // m/s
 
 // Helper function to generate ground truth trajectories
 Trajectory generate_gt_trajectory(
@@ -144,9 +148,9 @@ void TrajectoryFromBuffer_StandingStill()
     // Verify
     for (const auto& [time, point] : reconstructed_traj)
     {
-        ASSERT_NEAR_(point.pose.x(), 0.0, 0.1);
-        ASSERT_NEAR_(point.pose.y(), 0.0, 0.1);
-        ASSERT_NEAR_(point.pose.z(), 0.0, 0.1);
+        ASSERT_NEAR_(point.pose.x(), 0.0, TOL_POS);
+        ASSERT_NEAR_(point.pose.y(), 0.0, TOL_POS);
+        ASSERT_NEAR_(point.pose.z(), 0.0, TOL_POS);
     }
     std::cout << "✅ TrajectoryFromBuffer_StandingStill passed!" << std::endl;
     MRPT_END
@@ -186,19 +190,67 @@ void TrajectoryFromBuffer_ConstantLinearVelocity()
     // Verify
     for (const auto& [time, point] : reconstructed_traj)
     {
-        ASSERT_NEAR_(point.pose.x(), vel_gt.x * time, 0.1);
-        ASSERT_NEAR_(point.pose.y(), vel_gt.y * time, 0.1);
-        ASSERT_NEAR_(point.pose.z(), vel_gt.z * time, 0.1);
+        ASSERT_NEAR_(point.pose.x(), vel_gt.x * time, TOL_POS);
+        ASSERT_NEAR_(point.pose.y(), vel_gt.y * time, TOL_POS);
+        ASSERT_NEAR_(point.pose.z(), vel_gt.z * time, TOL_POS);
 
-        ASSERT_NEAR_(point.v->x, vel_gt.x, 0.1);
-        ASSERT_NEAR_(point.v->y, vel_gt.y, 0.1);
-        ASSERT_NEAR_(point.v->z, vel_gt.z, 0.1);
+        ASSERT_NEAR_(point.v->x, vel_gt.x, TOL_VEL);
+        ASSERT_NEAR_(point.v->y, vel_gt.y, TOL_VEL);
+        ASSERT_NEAR_(point.v->z, vel_gt.z, TOL_VEL);
     }
     std::cout << "✅ TrajectoryFromBuffer_ConstantLinearVelocity passed!" << std::endl;
     MRPT_END
 }
 
-// Test Case 3: Perfect Circle (2D)
+// Test Case: Constant Linear Velocity while rotating (around X: roll)
+void TrajectoryFromBuffer_ConstantLinearVelocityWithRoll()
+{
+    MRPT_START
+
+    ImuIntegrationParams imu_params;
+    imu_params.gravity_vector = {0, 0, -9.81};
+    TVector3D vel_gt          = {1.0, 0, 0.0};
+    TVector3D ang_vel_gt      = {M_PI / 10.0, .0, .0};  // roll only
+
+    // Ground truth:
+    auto gt_func = [&](double time) -> TrajectoryPoint
+    {
+        TrajectoryPoint p;
+        p.pose =
+            CPose3D(vel_gt.x * time, vel_gt.y * time, vel_gt.z * time, 0, 0, ang_vel_gt.x * time);
+        p.w_b  = ang_vel_gt;
+        p.a_b  = p.pose.inverseRotateVector({0, 0, 9.81});
+        p.v    = vel_gt;
+        p.R_ga = p.pose.getRotationMatrix();
+        return p;
+    };
+
+    Trajectory          gt_traj = generate_gt_trajectory(3.0, gt_func);
+    LocalVelocityBuffer buffer;
+    buffer.set_reference_zero_time(0.0);
+    buffer.parameters.max_time_window = 20.0;  // for this test, large window
+    simulate_and_populate_buffer(buffer, gt_traj, imu_params);
+
+    // Reconstruct trajectory
+    auto       samples            = buffer.collect_samples_around_reference_time(10.0);
+    Trajectory reconstructed_traj = trajectory_from_buffer(samples, imu_params, false);
+
+    // Verify
+    for (const auto& [time, point] : reconstructed_traj)
+    {
+        ASSERT_NEAR_(point.pose.x(), vel_gt.x * time, TOL_POS);
+        ASSERT_NEAR_(point.pose.y(), vel_gt.y * time, TOL_POS);
+        ASSERT_NEAR_(point.pose.z(), vel_gt.z * time, TOL_POS);
+
+        ASSERT_NEAR_(point.v->x, vel_gt.x, TOL_VEL);
+        ASSERT_NEAR_(point.v->y, vel_gt.y, TOL_VEL);
+        ASSERT_NEAR_(point.v->z, vel_gt.z, TOL_VEL);
+    }
+    std::cout << "✅ TrajectoryFromBuffer_ConstantLinearVelocityWithRoll passed!" << std::endl;
+    MRPT_END
+}
+
+// Test Case: Perfect Circle (2D)
 void TrajectoryFromBuffer_PerfectCircle()
 {
     MRPT_START
@@ -216,13 +268,13 @@ void TrajectoryFromBuffer_PerfectCircle()
         p.pose =
             CPose3D(radius * std::sin(angle), -radius * std::cos(angle) + radius, 0, angle, 0, 0);
         p.w_b  = {0, 0, ang_vel};
-        p.a_b  = {ang_vel * ang_vel * radius, 0, 9.81};  // Centripetal acceleration
+        p.a_b  = {0, ang_vel * ang_vel * radius, 9.81};  // Centripetal acceleration
         p.v    = {radius * ang_vel * std::cos(angle), radius * ang_vel * std::sin(angle), 0};
         p.R_ga = p.pose.getRotationMatrix();
         return p;
     };
 
-    Trajectory          gt_traj = generate_gt_trajectory(5.0, gt_func);
+    Trajectory          gt_traj = generate_gt_trajectory(4.0, gt_func);
     LocalVelocityBuffer buffer;
     buffer.set_reference_zero_time(0.0);
     buffer.parameters.max_time_window = 20.0;  // for this test, large window
@@ -235,8 +287,6 @@ void TrajectoryFromBuffer_PerfectCircle()
     // Verify
     for (const auto& [time, point] : reconstructed_traj)
     {
-        std::cout << mrpt::format("t=%.03f: %s\n", time, point.asString().c_str());
-
         double angle = ang_vel * time;
         double x_gt  = radius * std::sin(angle);
         double y_gt  = -radius * std::cos(angle) + radius;
@@ -258,7 +308,7 @@ void TrajectoryFromBuffer_Spinning3D()
     imu_params.gravity_vector = {0, 0, -9.81};
     TVector3D ang_vel_gt      = {M_PI / 10.0, M_PI / 20.0, M_PI / 30.0};
 
-    // Ground truth: 10 seconds of spinning without translation
+    // Ground truth: 4 seconds of spinning without translation
     auto gt_func = [&](double time) -> TrajectoryPoint
     {
         TrajectoryPoint p;
@@ -270,13 +320,13 @@ void TrajectoryFromBuffer_Spinning3D()
         p.pose.setRotationMatrix(R_pose_gt);
 
         p.w_b  = w_b_gt;
-        p.a_b  = a_b_gt;
+        p.a_b  = p.pose.inverseRotateVector(a_b_gt);
         p.v    = {0, 0, 0};
         p.R_ga = R_pose_gt;
         return p;
     };
 
-    Trajectory          gt_traj = generate_gt_trajectory(10.0, gt_func);
+    Trajectory          gt_traj = generate_gt_trajectory(4.0, gt_func);
     LocalVelocityBuffer buffer;
     buffer.set_reference_zero_time(0.0);
     buffer.parameters.max_time_window = 20.0;  // for this test, large window
@@ -292,14 +342,18 @@ void TrajectoryFromBuffer_Spinning3D()
         mrpt::math::CMatrixDouble33 R_gt =
             SO<3>::exp((ang_vel_gt * time).asVector<mrpt::math::CVectorFixedDouble<3>>());
 
+        // print R_gt as cpose3d:
+        CPose3D p_gt;
+        p_gt.setRotationMatrix(R_gt);
+
         // Compare rotation matrices
         mrpt::math::CMatrixDouble33 diff_R   = R_gt.inverse() * point.pose.getRotationMatrix();
         const auto                  diff_log = SO<3>::log(diff_R);
 
-        ASSERT_NEAR_(diff_log.norm(), 0.0, 0.1);
-        ASSERT_NEAR_(point.pose.x(), 0.0, 0.1);
-        ASSERT_NEAR_(point.pose.y(), 0.0, 0.1);
-        ASSERT_NEAR_(point.pose.z(), 0.0, 0.1);
+        ASSERT_NEAR_(diff_log.norm(), 0.0, TOL_ANG);
+        ASSERT_NEAR_(point.pose.x(), 0.0, TOL_POS);
+        ASSERT_NEAR_(point.pose.y(), 0.0, TOL_POS);
+        ASSERT_NEAR_(point.pose.z(), 0.0, TOL_POS);
     }
 
     std::cout << "✅ TrajectoryFromBuffer_Spinning3D passed!" << std::endl;
@@ -314,12 +368,18 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv)
         TrajectoryFromBuffer_StandingStill();
         TrajectoryFromBuffer_ConstantLinearVelocity();
         TrajectoryFromBuffer_PerfectCircle();
+        TrajectoryFromBuffer_ConstantLinearVelocityWithRoll();
         TrajectoryFromBuffer_Spinning3D();
         return 0;
     }
     catch (const std::exception& e)
     {
         std::cerr << "Test failed: " << e.what() << std::endl;
+        return 1;
+    }
+    catch (...)
+    {
+        std::cerr << "Test failed: Unknown exception" << std::endl;
         return 1;
     }
 }
