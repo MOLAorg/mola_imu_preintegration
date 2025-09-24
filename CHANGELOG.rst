@@ -2,6 +2,13 @@
 Changelog for package mola_imu_preintegration
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+Forthcoming
+------------------
+* New unit tests for IMU integration
+* Move everything into namespace mola::imu to avoid ns pollution
+* Move LocalVelocityBuffer class here from mp2p_icp repository
+* Contributors: Jose Luis Blanco-Claraco
+
 1.10.0 (2025-09-07)
 -------------------
 * Add class ImuTransformer
