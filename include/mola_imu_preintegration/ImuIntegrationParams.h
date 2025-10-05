@@ -51,6 +51,9 @@ class ImuIntegrationParams
     /// Loads all parameters from a YAML map node.
     void load_from(const mrpt::containers::yaml& cfg);
 
+    /// Saves all parameters as YAML.
+    void save_to(mrpt::containers::yaml& cfg) const;
+
     /// Gravity vector (units are m/s²), in the global gravity-aligned frame of coordinates.
     LinearAcceleration gravity_vector = {0, 0, -9.81};
 
