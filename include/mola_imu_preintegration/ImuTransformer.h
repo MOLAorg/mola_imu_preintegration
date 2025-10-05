@@ -34,8 +34,8 @@ namespace mola::imu
  * The returned IMU reading object has `sensorPose` set to the SE(3) identity to reflect its new
  * frame.
  *
- * Note that bias is *not* substracted here, it must be done by the caller.
- * Also, gravity is not substracted here since this class has no knowledge of global orientation.
+ * Note that bias is *not* subtracted here, it must be done by the caller.
+ * Also, gravity is not subtracted here since this class has no knowledge of global orientation.
  *
  * Since this class has a state (the stamp of the last observation), one object must be instantiated
  * for each IMU sensor.

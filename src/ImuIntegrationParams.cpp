@@ -45,6 +45,6 @@ void ImuIntegrationParams::load_from(const mrpt::containers::yaml& cfg)
     }
     else
     {
-        // Leave as unasigned to reflect it's just I_{4,4}
+        // Leave as unassigned to reflect it's just I_{4,4}
     }
 }
