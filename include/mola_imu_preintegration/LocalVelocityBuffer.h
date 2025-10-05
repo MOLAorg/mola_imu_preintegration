@@ -44,7 +44,7 @@ class LocalVelocityBuffer
     {
         Parameters() = default;
 
-        double max_time_window        = 1.5;  // seconds
+        double max_time_window        = 0.5;  // seconds
         double tolerance_search_stamp = 10e-3;  // seconds
     };
 
