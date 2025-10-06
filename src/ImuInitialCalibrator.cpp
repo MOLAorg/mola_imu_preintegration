@@ -23,9 +23,15 @@
 #include <mola_imu_preintegration/ImuInitialCalibrator.h>
 #include <mrpt/core/Clock.h>
 #include <mrpt/core/exceptions.h>  // ASSERT_()
+#include <mrpt/math/CMatrixFixed.h>
+#include <mrpt/math/CQuaternion.h>
 #include <mrpt/math/TPoint3D.h>
 #include <mrpt/math/TTwist3D.h>
+#include <mrpt/obs/CObservationIMU.h>
+#include <mrpt/poses/CPose3D.h>
+#include <mrpt/poses/SO_SE_average.h>
 
+#include <exception>
 #include <sstream>
 
 using namespace mola::imu;
@@ -94,11 +100,42 @@ std::optional<ImuInitialCalibrator::Results> ImuInitialCalibrator::getCalibratio
         }
     };
 
+    auto forEachOrientation = [this](const std::function<void(const mrpt::poses::CPose3D&)>& f)
+    {
+        for (const auto& [_, imu] : samples_)
+        {
+            if (!imu.has(mrpt::obs::IMU_ORI_QUAT_W))
+            {
+                continue;
+            }
+            const auto p = mrpt::poses::CPose3D::FromQuaternion(mrpt::math::CQuaternionDouble(
+                imu.get(mrpt::obs::IMU_ORI_QUAT_W), imu.get(mrpt::obs::IMU_ORI_QUAT_X),
+                imu.get(mrpt::obs::IMU_ORI_QUAT_Y), imu.get(mrpt::obs::IMU_ORI_QUAT_Z)));
+            f(p);
+        }
+    };
+
     mrpt::math::TVector3D average_accel(0, 0, 0);
     forEachAcc([&](const auto& acc) { average_accel += acc; });
 
     mrpt::math::TVector3D average_gyro(0, 0, 0);
     forEachGyro([&](const auto& omega) { average_gyro += omega; });
+
+    mrpt::poses::SO_average<3> so3_average;
+    forEachOrientation([&](const auto& pose) { so3_average.append(pose.getRotationMatrix()); });
+    std::optional<mrpt::poses::CPose3D> avr_so3;
+    try
+    {
+        auto rot = so3_average.get_average();
+
+        avr_so3.emplace();
+        avr_so3->setRotationMatrix(rot);
+    }
+    catch (const std::exception& e)
+    {
+        // Ignore, this means we had no data.
+        (void)e;
+    }
 
     const std::size_t count = samples_.size();
 
@@ -137,8 +174,16 @@ std::optional<ImuInitialCalibrator::Results> ImuInitialCalibrator::getCalibratio
     // Compute pitch & roll from the XYZ acceleration vector:
     const auto up_vector = average_accel.unitarize();
 
-    results.pitch = -std::asin(up_vector.x);
-    results.roll  = -std::asin(up_vector.y);
+    if (avr_so3.has_value())
+    {
+        results.pitch = avr_so3->pitch();
+        results.roll  = avr_so3->roll();
+    }
+    else
+    {
+        results.pitch = -std::asin(up_vector.x);
+        results.roll  = -std::asin(up_vector.y);
+    }
 
     // Accelerometer bias:
     const auto nominal_gravity_vector = mrpt::math::TVector3D(0., 0., parameters.gravity);
