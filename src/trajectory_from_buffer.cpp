@@ -159,11 +159,18 @@ Trajectory mola::imu::trajectory_from_buffer(
         stamp_first_R_ga.has_value(),
         "At least one entry with gravity-aligned orientation is needed for IMU integration");
 
-    // and assign the closest IMU reading to this frame:
-    t[*stamp_first_R_ga].w_b =
-        mrpt::containers::find_closest(samples.by_type.w_b, *stamp_first_R_ga)->second - bias_gyro;
-    t[*stamp_first_R_ga].a_b =
-        mrpt::containers::find_closest(samples.by_type.a_b, *stamp_first_R_ga)->second - bias_acc;
+    // and assign the closest IMU reading to all frames:
+    for (auto& [stamp, tp] : t)
+    {
+        if (!tp.w_b.has_value())
+        {
+            tp.w_b = mrpt::containers::find_closest(samples.by_type.w_b, stamp)->second - bias_gyro;
+        }
+        if (!tp.a_b.has_value())
+        {
+            tp.a_b = mrpt::containers::find_closest(samples.by_type.a_b, stamp)->second - bias_acc;
+        }
+    }
 
     // 7) (only for higher-order) Estimate alpha:
     if (use_higher_order)
