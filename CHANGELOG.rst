@@ -2,8 +2,8 @@
 Changelog for package mola_imu_preintegration
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Forthcoming
------------
+1.12.0 (2025-10-09)
+-------------------
 * FIX: May leave trajectory poses without populating raw IMU data
 * ImuInitialCalibrator: Use IMU orientation, if available
 * LocalVelocityBuffer: reduce default max_time_window to 0.5 s
