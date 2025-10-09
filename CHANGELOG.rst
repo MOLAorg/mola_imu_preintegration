@@ -2,6 +2,16 @@
 Changelog for package mola_imu_preintegration
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+Forthcoming
+-----------
+* FIX: May leave trajectory poses without populating raw IMU data
+* ImuInitialCalibrator: Use IMU orientation, if available
+* LocalVelocityBuffer: reduce default max_time_window to 0.5 s
+* ImuIntegrationParams: Add save_to() method, and finish missing load_from() fields
+* Fix comment typos
+* Readme: Add missing ROS build farm badges for bin packages
+* Contributors: Jose Luis Blanco-Claraco
+
 1.11.0 (2025-09-24)
 -------------------
 * New unit tests for IMU integration
