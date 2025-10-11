@@ -21,6 +21,7 @@
 
 #include <mola_imu_preintegration/trajectory_from_buffer.h>
 #include <mrpt/containers/find_closest.h>
+#include <mrpt/core/exceptions.h>
 #include <mrpt/poses/Lie/SO.h>
 
 #include <Eigen/Dense>
@@ -146,18 +147,12 @@ Trajectory mola::imu::trajectory_from_buffer(
     t[0].a_b = mrpt::containers::find_closest(samples.by_type.a_b, 0.0)->second - bias_acc;
 
     // 3) Copy the closest gravity-aligned hints on global orientations:
-    std::optional<double> stamp_first_R_ga;
-    for (const auto& [stamp, so3] : samples.by_type.q)
-    {
-        t[stamp].R_ga = so3;
-        if (!stamp_first_R_ga)
-        {
-            stamp_first_R_ga = stamp;
-        }
-    }
+    const auto closest_q = mrpt::containers::find_closest(samples.by_type.q, 0.0);
     ASSERTMSG_(
-        stamp_first_R_ga.has_value(),
+        closest_q,
         "At least one entry with gravity-aligned orientation is needed for IMU integration");
+    const double stamp_first_R_ga = closest_q->first;
+    t[stamp_first_R_ga].R_ga      = closest_q->second;
 
     // and assign the closest IMU reading to all frames:
     for (auto& [stamp, tp] : t)
@@ -229,7 +224,7 @@ Trajectory mola::imu::trajectory_from_buffer(
             p1.R_ga = (*p0.R_ga) *
                       ((p0.pose.getRotationMatrix()).inverse() * (p1.pose.getRotationMatrix()));
         },
-        stamp_first_R_ga.value());
+        stamp_first_R_ga);
 
     // 6) convert acceleration:
     // proper acceleration in the body frame => coordinate acceleration in the body frame
@@ -257,18 +252,10 @@ Trajectory mola::imu::trajectory_from_buffer(
     }
 
     // 7) Copy the closest velocity from the given samples:
-    std::optional<double> stamp_first_v_b;
-    for (const auto& [stamp, v_b] : samples.by_type.v_b)
-    {
-        t[stamp].v = v_b;
-        if (!stamp_first_v_b)
-        {
-            stamp_first_v_b = stamp;
-        }
-    }
-    ASSERTMSG_(
-        stamp_first_v_b.has_value(),
-        "At least one entry with velocity is needed for IMU integration");
+    const auto closest_v_b = mrpt::containers::find_closest(samples.by_type.v_b, 0.0);
+    ASSERTMSG_(closest_v_b, "At least one entry with velocity is needed for IMU integration");
+    const double stamp_first_v_b = closest_v_b->first;
+    t[stamp_first_v_b].v         = closest_v_b->second;
 
     // 8) Integrate v:
     if (use_higher_order)
@@ -281,7 +268,7 @@ Trajectory mola::imu::trajectory_from_buffer(
                 const double dt2 = dt * dt;
                 p1.v = *p0.v + p0.pose.rotateVector(p0.ac_b.value() * dt + p0.j_b * dt2 * 0.5);
             },
-            stamp_first_v_b.value());
+            stamp_first_v_b);
     }
     else
     {
@@ -292,7 +279,7 @@ Trajectory mola::imu::trajectory_from_buffer(
                 ASSERT_(p0.v.has_value());
                 p1.v = *p0.v + p0.pose.rotateVector(p0.ac_b.value() * dt);
             },
-            stamp_first_v_b.value());
+            stamp_first_v_b);
     }
 
     // 9) Integrate p:
