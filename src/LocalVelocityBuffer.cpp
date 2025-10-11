@@ -174,6 +174,54 @@ mrpt::containers::yaml LocalVelocityBuffer::toYAML() const
     return root;
 }
 
+std::string LocalVelocityBuffer::SamplesByTime::asString() const
+{
+    std::ostringstream oss;
+    oss << "SamplesByTime:\n";
+
+    auto dumpMap = [&](const std::string& name, const auto& map)
+    {
+        oss << "  " << name << ":\n";
+        for (const auto& [t, val] : map)
+        {
+            oss << "    [" << t << "] = " << val << "\n";
+        }
+    };
+
+    dumpMap("q (orientation)", q);
+    dumpMap("v_b (linear velocity)", v_b);
+    dumpMap("a_b (linear acceleration)", a_b);
+    dumpMap("w_b (angular velocity)", w_b);
+
+    return oss.str();
+}
+
+std::string LocalVelocityBuffer::Sample::asString() const
+{
+    std::ostringstream oss;
+    oss << "Sample:\n";
+
+    auto dumpOpt = [&](const std::string& name, const auto& opt)
+    {
+        oss << "  " << name << ": ";
+        if (opt.has_value())
+        {
+            oss << *opt << "\n";
+        }
+        else
+        {
+            oss << "(none)\n";
+        }
+    };
+
+    dumpOpt("q (orientation)", q);
+    dumpOpt("v_b (linear velocity)", v_b);
+    dumpOpt("a_b (linear acceleration)", a_b);
+    dumpOpt("w_b (angular velocity)", w_b);
+
+    return oss.str();
+}
+
 namespace
 {
 

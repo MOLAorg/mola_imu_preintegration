@@ -58,6 +58,8 @@ class LocalVelocityBuffer
         std::optional<LinearVelocity>     v_b;  //!< linear velocity (body frame)
         std::optional<LinearAcceleration> a_b;  //!< linear acceleration (body frame)
         std::optional<AngularVelocity>    w_b;  //!< Angular velocity (body frame)
+
+        std::string asString() const;  //!< For debugging purposes
     };
 
     /// Each kind of sample on its own timeline.
@@ -67,6 +69,8 @@ class LocalVelocityBuffer
         std::map<TimeStamp, LinearVelocity>     v_b;  //!< linear velocity (body frame)
         std::map<TimeStamp, LinearAcceleration> a_b;  //!< proper linear acceleration (body frame)
         std::map<TimeStamp, AngularVelocity>    w_b;  //!< Angular velocity (body frame)
+
+        std::string asString() const;  //!< For debugging purposes
     };
 
     struct SampleHistory
