@@ -146,13 +146,21 @@ Trajectory mola::imu::trajectory_from_buffer(
     t[0].w_b = mrpt::containers::find_closest(samples.by_type.w_b, 0.0)->second - bias_gyro;
     t[0].a_b = mrpt::containers::find_closest(samples.by_type.a_b, 0.0)->second - bias_acc;
 
-    // 3) Copy the closest gravity-aligned hints on global orientations:
-    const auto closest_q = mrpt::containers::find_closest(samples.by_type.q, 0.0);
+    // 3) Copy the latest gravity-aligned hints on global orientations:
+    const double last_sample_rel_time = samples.by_time.rbegin()->first;
+    const auto closest_q = mrpt::containers::find_closest(samples.by_type.q, last_sample_rel_time);
     ASSERTMSG_(
         closest_q,
         "At least one entry with gravity-aligned orientation is needed for IMU integration");
     const double stamp_first_R_ga = closest_q->first;
-    t[stamp_first_R_ga].R_ga      = closest_q->second;
+    t[closest_q->first].R_ga      = closest_q->second;
+
+    // 3b) and copy the closest velocity from the given samples:
+    const auto closest_v_b =
+        mrpt::containers::find_closest(samples.by_type.v_b, last_sample_rel_time);
+    ASSERTMSG_(closest_v_b, "At least one entry with velocity is needed for IMU integration");
+    const double stamp_first_v_b = closest_v_b->first;
+    t[closest_v_b->first].v      = closest_v_b->second;
 
     // and assign the closest IMU reading to all frames:
     for (auto& [stamp, tp] : t)
@@ -250,12 +258,6 @@ Trajectory mola::imu::trajectory_from_buffer(
                 p0.j_b = p1.j_b = (*p1.ac_b - *p0.ac_b) / dt;
             });
     }
-
-    // 7) Copy the closest velocity from the given samples:
-    const auto closest_v_b = mrpt::containers::find_closest(samples.by_type.v_b, 0.0);
-    ASSERTMSG_(closest_v_b, "At least one entry with velocity is needed for IMU integration");
-    const double stamp_first_v_b = closest_v_b->first;
-    t[stamp_first_v_b].v         = closest_v_b->second;
 
     // 8) Integrate v:
     if (use_higher_order)

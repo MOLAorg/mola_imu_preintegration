@@ -23,6 +23,7 @@
 #include <mrpt/containers/yaml.h>
 #include <mrpt/core/exceptions.h>
 #include <mrpt/core/round.h>
+#include <mrpt/poses/Lie/SO.h>
 #include <mrpt/system/os.h>
 
 #include <iostream>
@@ -118,10 +119,10 @@ void unit_test_yaml_roundtrip()
     buf.parameters.tolerance_search_stamp = 1e-2;
     buf.set_reference_zero_time(123.456);
 
-    LinearVelocity     v{1.0, 2.0, 3.0};
-    AngularVelocity    w{0.1, 0.2, 0.3};
-    LinearAcceleration a{9.8, 0.0, -9.8};
-    SO3                R = mrpt::math::CMatrixDouble33::Identity();
+    const LinearVelocity     v{1.0, 2.0, 3.0};
+    const AngularVelocity    w{0.1, 0.2, 0.3};
+    const LinearAcceleration a{9.8, 0.0, -9.8};
+    const SO3                R = mrpt::poses::CPose3D(0, 0, 0, 0.7, 0.0, 0.0).getRotationMatrix();
 
     buf.add_linear_velocity(123.400, v);
     buf.add_angular_velocity(123.410, w);
@@ -129,7 +130,7 @@ void unit_test_yaml_roundtrip()
     buf.add_orientation(123.430, R);
 
     // Serialize
-    auto yml = buf.toYAML();
+    const auto yml = buf.toYAML();
 
     yml.printAsYAML();
 
@@ -175,7 +176,12 @@ void unit_test_yaml_roundtrip()
     {
         const auto it = buf2.get_orientations().find(t);
         ASSERT_(it != buf2.get_orientations().end());
-        ASSERT_(R1 == it->second);
+        mrpt::math::CMatrixDouble33 error_R = R1.inverse() * it->second;
+        if (mrpt::poses::Lie::SO<3>::log(error_R).norm() > 1e-4)
+        {
+            std::cerr << "R1:\n" << R1 << "\nit->second:\n" << it->second << "\n";
+            THROW_EXCEPTION("Error in rotation matrix");
+        }
     }
 
     std::cout << "✅ LocalVelocityBuffer unit_test_yaml_roundtrip passed!" << std::endl;

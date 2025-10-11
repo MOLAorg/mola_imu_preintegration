@@ -179,16 +179,21 @@ std::string LocalVelocityBuffer::SamplesByTime::asString() const
     std::ostringstream oss;
     oss << "SamplesByTime:\n";
 
-    auto dumpMap = [&](const std::string& name, const auto& map)
+    auto dumpMap = [&](const std::string& name, const auto& map, bool isMatrix = false)
     {
         oss << "  " << name << ":\n";
         for (const auto& [t, val] : map)
         {
-            oss << "    [" << t << "] = " << val << "\n";
+            oss << "    [" << t << "] = ";
+            if (isMatrix)
+            {
+                oss << "\n";
+            }
+            oss << val << "\n";
         }
     };
 
-    dumpMap("q (orientation)", q);
+    dumpMap("q (orientation)", q, true);
     dumpMap("v_b (linear velocity)", v_b);
     dumpMap("a_b (linear acceleration)", a_b);
     dumpMap("w_b (angular velocity)", w_b);
@@ -203,7 +208,7 @@ std::string LocalVelocityBuffer::Sample::asString() const
 
     auto dumpOpt = [&](const std::string& name, const auto& opt)
     {
-        oss << "  " << name << ": ";
+        oss << "  " << name;
         if (opt.has_value())
         {
             oss << *opt << "\n";
@@ -214,10 +219,10 @@ std::string LocalVelocityBuffer::Sample::asString() const
         }
     };
 
-    dumpOpt("q (orientation)", q);
-    dumpOpt("v_b (linear velocity)", v_b);
-    dumpOpt("a_b (linear acceleration)", a_b);
-    dumpOpt("w_b (angular velocity)", w_b);
+    dumpOpt("q (orientation):\n", q);
+    dumpOpt("v_b (linear velocity): ", v_b);
+    dumpOpt("a_b (linear acceleration): ", a_b);
+    dumpOpt("w_b (angular velocity): ", w_b);
 
     return oss.str();
 }
