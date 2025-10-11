@@ -2,8 +2,8 @@
 Changelog for package mola_imu_preintegration
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Forthcoming
------------
+1.13.0 (2025-10-11)
+-------------------
 * FIX: Picked wrong reference stamp for integrating trajectories
 * Add asString() debugging methods to sample structs
 * Contributors: Jose Luis Blanco-Claraco
