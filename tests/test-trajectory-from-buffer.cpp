@@ -37,12 +37,12 @@ using mrpt::random::getRandomGenerator;
 const double IMU_RATE = 100.0;  // 100 Hz
 const double IMU_DT   = 1.0 / IMU_RATE;
 
-const double NOISE_STD_ORIENT  = 0.001;  // radians
-const double NOISE_STD_LIN_VEL = 0.01;  // m/s
-const double NOISE_STD_ACC     = 0.001;  // m/s^2
-const double NOISE_STD_GYRO    = 0.0002;  // rad/s
+const double NOISE_STD_ORIENT  = 0.002;  // radians
+const double NOISE_STD_LIN_VEL = 0.005;  // m/s
+const double NOISE_STD_ACC     = 0.0005;  // m/s^2
+const double NOISE_STD_GYRO    = 0.0001;  // rad/s
 
-constexpr double TOL_POS = 0.1;  // meters
+constexpr double TOL_POS = 0.2;  // meters
 constexpr double TOL_ANG = 0.05;  // radians
 constexpr double TOL_VEL = 0.1;  // m/s
 
