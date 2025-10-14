@@ -108,9 +108,20 @@ std::optional<ImuInitialCalibrator::Results> ImuInitialCalibrator::getCalibratio
             {
                 continue;
             }
-            const auto p = mrpt::poses::CPose3D::FromQuaternion(mrpt::math::CQuaternionDouble(
-                imu.get(mrpt::obs::IMU_ORI_QUAT_W), imu.get(mrpt::obs::IMU_ORI_QUAT_X),
-                imu.get(mrpt::obs::IMU_ORI_QUAT_Y), imu.get(mrpt::obs::IMU_ORI_QUAT_Z)));
+            const auto qw = imu.get(mrpt::obs::IMU_ORI_QUAT_W);
+            const auto qx = imu.get(mrpt::obs::IMU_ORI_QUAT_X);
+            const auto qy = imu.get(mrpt::obs::IMU_ORI_QUAT_Y);
+            const auto qz = imu.get(mrpt::obs::IMU_ORI_QUAT_Z);
+            const auto q_norm =
+                mrpt::square(qw) + mrpt::square(qx) + mrpt::square(qy) + mrpt::square(qz);
+            if (std::abs(q_norm - 1.0) > 0.1)
+            {
+                // Orientation data seems invalid!
+                continue;
+            }
+
+            const auto p =
+                mrpt::poses::CPose3D::FromQuaternion(mrpt::math::CQuaternionDouble(qw, qx, qy, qz));
             f(p);
         }
     };
