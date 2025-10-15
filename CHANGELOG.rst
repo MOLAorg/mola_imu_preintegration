@@ -2,8 +2,8 @@
 Changelog for package mola_imu_preintegration
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Forthcoming
------------
+1.13.1 (2025-10-15)
+-------------------
 * ImuCalibrator: Robust against invalid orientation data in Imu msgs
 * Fix random failures in unit test
 * CI: add running unit tests
