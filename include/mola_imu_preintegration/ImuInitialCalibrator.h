@@ -73,7 +73,7 @@ class ImuInitialCalibrator
     };
 
     /// Inserts an IMU observation into the queue
-    void add(const mrpt::obs::CObservationIMU::Ptr& obs);
+    void add(const mrpt::obs::CObservationIMU::ConstPtr& obs);
 
     /// Returns true if there are already samples enough in the buffer to call getCalibration()
     [[nodiscard]] bool isReady() const;

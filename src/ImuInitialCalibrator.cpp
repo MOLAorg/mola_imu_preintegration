@@ -36,7 +36,7 @@
 
 using namespace mola::imu;
 
-void ImuInitialCalibrator::add(const mrpt::obs::CObservationIMU::Ptr& obs)
+void ImuInitialCalibrator::add(const mrpt::obs::CObservationIMU::ConstPtr& obs)
 {
     ASSERT_(obs);
     ASSERT_(parameters.required_samples > 2);
