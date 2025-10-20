@@ -2,6 +2,11 @@
 Changelog for package mola_imu_preintegration
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+Forthcoming
+-----------
+* Make use of ConstPtr in API
+* Contributors: Jose Luis Blanco-Claraco
+
 1.13.1 (2025-10-15)
 -------------------
 * ImuCalibrator: Robust against invalid orientation data in Imu msgs
