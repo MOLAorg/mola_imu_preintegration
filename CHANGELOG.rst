@@ -2,8 +2,8 @@
 Changelog for package mola_imu_preintegration
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Forthcoming
------------
+1.13.2 (2025-10-20)
+-------------------
 * Make use of ConstPtr in API
 * Contributors: Jose Luis Blanco-Claraco
 
