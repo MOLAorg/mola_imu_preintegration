@@ -11,7 +11,7 @@
   <maintainer email="joseluisblancoc@gmail.com">Jose-Luis Blanco-Claraco</maintainer>
   <license file="LICENSE">GPLv3</license>
 
-  <url type="website">https://github.com/MOLAorg/mola_state_estimation</url>
+  <url type="website">https://github.com/MOLAorg/mola_imu_preintegration</url>
 
 
   <depend>mola_common</depend>
