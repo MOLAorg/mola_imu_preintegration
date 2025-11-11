@@ -193,13 +193,14 @@ std::optional<ImuInitialCalibrator::Results> ImuInitialCalibrator::getCalibratio
     else
     {
         results.pitch = -std::asin(up_vector.x);
-        results.roll  = -std::asin(up_vector.y);
+        results.roll  = std::atan2(up_vector.y, up_vector.z);
     }
 
     // Accelerometer bias:
-    const auto nominal_gravity_vector = mrpt::math::TVector3D(0., 0., parameters.gravity);
+    const auto estimated_gravity_body = up_vector * parameters.gravity;
+    const auto average_accel_body     = average_accel;
 
-    results.bias_acc_b = (up_vector * parameters.gravity) - nominal_gravity_vector;
+    results.bias_acc_b = average_accel_body - estimated_gravity_body;
 
     // Gyroscope bias:
     results.bias_gyro = average_gyro;

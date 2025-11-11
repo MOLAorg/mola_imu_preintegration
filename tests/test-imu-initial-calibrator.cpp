@@ -235,13 +235,10 @@ void TestImuInitialCalibrator()
 
         const double tol = 1e-6;
 
-        // up_vector (average_accel.unitarize) = (g, 0, 0).unitarize() = (1, 0, 0)
-        // Expected bias: (1, 0, 0) * g - (0, 0, g) = (g, 0, 0) - (0, 0, g) = (g, 0, -g)
-        check_vector_equal(calib->bias_acc_b, {g, 0.0, -g}, tol, "bias_acc_b (static X-up)");
+        check_vector_equal(calib->bias_acc_b, {0.0, 0.0, 0.0}, tol, "bias_acc_b (static X-up)");
         check_vector_equal(calib->bias_gyro, {0.0, 0.0, 0.0}, tol, "bias_gyro (static X-up)");
 
         // Orientation: up_vector=(1,0,0). pitch = -asin(1) = -pi/2. roll = -asin(0) = 0.
-        // NOTE: The implementation uses roll = -asin(up.y) and pitch = -asin(up.x).
         MRPT_ASSERT_NEAR_MSG_(calib->pitch, -mrpt::DEG2RAD(90.0), tol, "pitch (static X-up)");
         MRPT_ASSERT_NEAR_MSG_(calib->roll, 0.0, tol, "roll (static X-up)");
 
@@ -379,13 +376,8 @@ void TestImuInitialCalibrator()
 
         const double tol = 1e-5;
 
-        // Bias Acc: Should be near zero since up_vector (expected_accel.unitarize)
-        // will be R_y(-pitch) * (0,0,1) = (sin(-p), 0, cos(-p)) = (-sin(p), 0, cos(p))
-        // bias_acc_b = (up_vector * g) - nominal_gravity_vector
-        // up_vector * g = (-g*sin(p), 0, g*cos(p)) == expected_accel
-        // nominal_gravity_vector = (0, 0, g)
-        // bias_acc_b = (-g*sin(p), 0, g*cos(p) - g)
-        const mrpt::math::TVector3D expected_bias = {-g * sin_p, 0.0, g * cos_p - g};
+        // Bias Acc: Should be near zero
+        const mrpt::math::TVector3D expected_bias = {.0, .0, .0};
         check_vector_equal(
             calib->bias_acc_b, expected_bias, tol, "bias_acc_b (with quat 45 deg pitch)");
 
@@ -431,13 +423,8 @@ void TestImuInitialCalibrator()
 
         const double tol = 1e-5;
 
-        // Bias Acc: Should be near zero since up_vector (expected_accel.unitarize)
-        // will be R_y(-pitch) * (0,0,1) = (sin(-p), 0, cos(-p)) = (-sin(p), 0, cos(p))
-        // bias_acc_b = (up_vector * g) - nominal_gravity_vector
-        // up_vector * g = (-g*sin(p), 0, g*cos(p)) == expected_accel
-        // nominal_gravity_vector = (0, 0, g)
-        // bias_acc_b = (-g*sin(p), 0, g*cos(p) - g)
-        const mrpt::math::TVector3D expected_bias = {-g * sin_p, 0.0, g * cos_p - g};
+        // Bias Acc
+        const mrpt::math::TVector3D expected_bias = {.0, .0, .0};
         check_vector_equal(
             calib->bias_acc_b, expected_bias, tol, "bias_acc_b (with quat 45 deg pitch)");
 
@@ -451,7 +438,7 @@ void TestImuInitialCalibrator()
 
         // std::cout << calib->asString();
 
-        std::cout << "Test 6: 45 deg pitch with orientation data OK.\n";
+        std::cout << "Test 7: 45 deg pitch with orientation data OK.\n";
     }
 
     // 8. Test sample aging
@@ -530,6 +517,70 @@ void TestImuInitialCalibrator()
         ASSERT_(!calibrator.getCalibration().has_value());
 
         std::cout << "Test 8: Sample aging OK (implicit check).\n";
+    }
+
+    // 9. Test getCalibration() - Static, no noise, 60 deg Roll (No orientation data)
+    {
+        ImuInitialCalibrator calibrator;
+        calibrator.parameters.required_samples = 3;
+        calibrator.parameters.max_samples_age  = 100.0;
+        calibrator.parameters.gravity          = 9.81;
+        const double g                         = calibrator.parameters.gravity;
+
+        // 60 degrees roll (around X axis)
+        const double roll_rad = M_PI / 3.0;  // 60 deg in radians
+
+        // Expected Accel Reading (Static body rotated 60 deg roll, measuring -g)
+        // a_body = R_x(-60) * (0, 0, g) = (0, g*sin(60), g*cos(60))
+        const double sin_60 = std::sin(roll_rad);
+        const double cos_60 = std::cos(roll_rad);
+
+        const mrpt::math::TVector3D expected_accel = {
+            0.0, g * sin_60, g * cos_60};  // (0, 8.4957, 4.905)
+
+        // Expected Bias Accel: bias_acc_b = (up_vector * g) - (0, 0, g)
+        // up_vector * g is the expected_accel vector itself.
+        const mrpt::math::TVector3D expected_bias_acc = {.0, .0, .0};
+
+        // Expected Roll:
+        const double expected_roll  = roll_rad;
+        const double expected_pitch = 0.0;
+
+        for (int i = 0; i < 5; ++i)
+        {
+            // Add IMU observation without quaternion data
+            calibrator.add(create_imu_obs(
+                80.0 + static_cast<double>(i), expected_accel, {0.0, 0.0, 0.0}, std::nullopt));
+        }
+
+        auto calib = calibrator.getCalibration();
+
+        // Assertions
+        const double tol = 1e-5;
+
+        ASSERT_(calib.has_value());
+
+        // Gyro Bias: Should be zero
+        ASSERT_NEAR_(calib->bias_gyro.x, 0.0, tol);
+        ASSERT_NEAR_(calib->bias_gyro.y, 0.0, tol);
+        ASSERT_NEAR_(calib->bias_gyro.z, 0.0, tol);
+
+        // Accel Bias: (0, g*sin(60), g*cos(60) - g)
+        MRPT_ASSERT_NEAR_MSG_(
+            calib->bias_acc_b.x, expected_bias_acc.x, tol, "Field bias_acc_b.x mismatch.");
+        MRPT_ASSERT_NEAR_MSG_(
+            calib->bias_acc_b.y, expected_bias_acc.y, tol, "Field bias_acc_b.y mismatch.");
+        MRPT_ASSERT_NEAR_MSG_(
+            calib->bias_acc_b.z, expected_bias_acc.z, tol, "Field bias_acc_b.z mismatch.");
+
+        // Orientation (derived from gravity vector)
+        MRPT_ASSERT_NEAR_MSG_(calib->pitch, expected_pitch, tol, "Pitch mismatch for 60 deg roll.");
+        // The implementation computes -roll_rad due to convention (Pitch = -asin(up_x), Roll =
+        // -asin(up_y))
+        MRPT_ASSERT_NEAR_MSG_(calib->roll, expected_roll, tol, "Roll mismatch for 60 deg roll.");
+        // std::cout << calib->asString();
+
+        std::cout << "Test 9: 60 deg roll (gravity-based attitude) OK.\n";
     }
 
     std::cout << "--- TestImuInitialCalibrator finished OK ---\n";
