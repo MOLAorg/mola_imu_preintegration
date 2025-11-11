@@ -48,7 +48,6 @@ mola_add_library(
   PUBLIC_LINK_LIBRARIES
     mrpt::containers
     mrpt::poses
-  PRIVATE_LINK_LIBRARIES
     mrpt::obs
   CMAKE_DEPENDENCIES
     mola_common

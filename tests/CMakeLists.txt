@@ -19,3 +19,10 @@ mola_add_test(
   LINK_LIBRARIES
     mola::mola_imu_preintegration
 )
+
+mola_add_test(
+  TARGET  test-imu-initial-calibrator
+  SOURCES test-imu-initial-calibrator.cpp
+  LINK_LIBRARIES
+    mola::mola_imu_preintegration
+)
