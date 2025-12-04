@@ -132,20 +132,23 @@ std::optional<ImuInitialCalibrator::Results> ImuInitialCalibrator::getCalibratio
     mrpt::math::TVector3D average_gyro(0, 0, 0);
     forEachGyro([&](const auto& omega) { average_gyro += omega; });
 
-    mrpt::poses::SO_average<3> so3_average;
-    forEachOrientation([&](const auto& pose) { so3_average.append(pose.getRotationMatrix()); });
     std::optional<mrpt::poses::CPose3D> avr_so3;
-    try
+    if (parameters.use_imu_orientation)
     {
-        auto rot = so3_average.get_average();
+        mrpt::poses::SO_average<3> so3_average;
+        forEachOrientation([&](const auto& pose) { so3_average.append(pose.getRotationMatrix()); });
+        try
+        {
+            auto rot = so3_average.get_average();
 
-        avr_so3.emplace();
-        avr_so3->setRotationMatrix(rot);
-    }
-    catch (const std::exception& e)
-    {
-        // Ignore, this means we had no data.
-        (void)e;
+            avr_so3.emplace();
+            avr_so3->setRotationMatrix(rot);
+        }
+        catch (const std::exception& e)
+        {
+            // Ignore, this means we had no data.
+            (void)e;
+        }
     }
 
     const std::size_t count = samples_.size();

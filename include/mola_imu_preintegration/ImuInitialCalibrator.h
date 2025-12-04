@@ -48,6 +48,11 @@ class ImuInitialCalibrator
         std::size_t required_samples = 50;  //!< Minimum required samples
         double      max_samples_age  = .75;  //!< Maximum samples age [seconds]
         double      gravity          = 9.81;  //<! Gravity magnitude [m/s²]
+
+        /** If provided by the IMU, prefer gravity-aligned orientation from the sensor instead of
+         * accelerometer data. Should be normally preferable, so default is true.
+         */
+        bool use_imu_orientation = true;
     };
 
     Parameters parameters;
@@ -87,5 +92,8 @@ class ImuInitialCalibrator
     /// Samples here have been already transformed to be on the base_link frame:
     std::map<double, const mrpt::obs::CObservationIMU> samples_;
 };
+
+// Remove when all distros have the version with "use_imu_orientation"
+#define MOLA_IMU_PREINT_HAS_USE_IMU_ORIENT_PARAM
 
 }  // namespace mola::imu
