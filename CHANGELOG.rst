@@ -2,8 +2,8 @@
 Changelog for package mola_imu_preintegration
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Forthcoming
------------
+1.14.1 (2025-12-26)
+-------------------
 * Add option 'use_imu_orientation' to disable using IMU orientation for initialization
 * CI: Use standard checkout action
 * Contributors: Jose Luis Blanco-Claraco
