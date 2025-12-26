@@ -2,6 +2,12 @@
 Changelog for package mola_imu_preintegration
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+Forthcoming
+-----------
+* Add option 'use_imu_orientation' to disable using IMU orientation for initialization
+* CI: Use standard checkout action
+* Contributors: Jose Luis Blanco-Claraco
+
 1.14.0 (2025-11-11)
 -------------------
 * BUGFIX: Estimated acc. bias and initial roll had a bug in their formulas.
