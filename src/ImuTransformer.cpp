@@ -85,7 +85,7 @@ mrpt::obs::CObservationIMU ImuTransformer::process(const mrpt::obs::CObservation
 
         const auto accel_body =
             accel_body_rotated - mrpt::math::crossProduct3D(ang_acc, t) -
-            mrpt::math::crossProduct3D(ang_vel_body, -mrpt::math::crossProduct3D(ang_vel_body, t));
+            mrpt::math::crossProduct3D(ang_vel_body, mrpt::math::crossProduct3D(ang_vel_body, t));
 
         imu.set(mrpt::obs::IMU_X_ACC, accel_body.x);
         imu.set(mrpt::obs::IMU_Y_ACC, accel_body.y);
