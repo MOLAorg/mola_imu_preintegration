@@ -32,49 +32,65 @@ mrpt::obs::CObservationIMU ImuTransformer::process(const mrpt::obs::CObservation
 {
     mrpt::obs::CObservationIMU imu = raw_imu;
 
-    // Transform angular velocity:
-    const auto ang_vel_sensor = mrpt::math::TVector3D(  //
-        raw_imu.get(mrpt::obs::IMU_WX),  //
-        raw_imu.get(mrpt::obs::IMU_WY),  //
-        raw_imu.get(mrpt::obs::IMU_WZ));
+    const bool hasAngVel = raw_imu.has(mrpt::obs::IMU_WX) && raw_imu.has(mrpt::obs::IMU_WY) &&
+                           raw_imu.has(mrpt::obs::IMU_WZ);
 
-    const auto ang_vel_body = imu.sensorPose.rotateVector(ang_vel_sensor);
-    imu.set(mrpt::obs::IMU_WX, ang_vel_body.x);
-    imu.set(mrpt::obs::IMU_WY, ang_vel_body.y);
-    imu.set(mrpt::obs::IMU_WZ, ang_vel_body.z);
+    mrpt::math::TVector3D ang_vel_body = {0, 0, 0};
+    mrpt::math::TVector3D ang_acc      = {0, 0, 0};
 
-    // Estimate angular acceleration:
-    const auto this_stamp = mrpt::Clock::toDouble(raw_imu.timestamp);
-    double     dt         = this_stamp - last_stamp_;
-    if (dt <= 0 || dt > 1.0)
+    if (hasAngVel)
     {
-        // It's either the first reading, an error, or data flow stopped and resumed.
-        // Then use default rate:
-        dt = 1.0 / 100.0;
+        // Transform angular velocity:
+        const auto ang_vel_sensor = mrpt::math::TVector3D(  //
+            raw_imu.get(mrpt::obs::IMU_WX),  //
+            raw_imu.get(mrpt::obs::IMU_WY),  //
+            raw_imu.get(mrpt::obs::IMU_WZ));
+
+        ang_vel_body = imu.sensorPose.rotateVector(ang_vel_sensor);
+        imu.set(mrpt::obs::IMU_WX, ang_vel_body.x);
+        imu.set(mrpt::obs::IMU_WY, ang_vel_body.y);
+        imu.set(mrpt::obs::IMU_WZ, ang_vel_body.z);
+
+        // Estimate angular acceleration:
+        const auto this_stamp = mrpt::Clock::toDouble(raw_imu.timestamp);
+        double     dt         = this_stamp - last_stamp_;
+        if (dt <= 0 || dt > 1.0)
+        {
+            // It's either the first reading, an error, or data flow stopped and resumed.
+            // Then use default rate:
+            dt = 1.0 / 100.0;
+        }
+
+        ang_acc = (ang_vel_body - last_ang_vel_body_) / dt;
+
+        last_ang_vel_body_ = ang_vel_body;
+        last_stamp_        = this_stamp;
     }
 
-    const auto ang_acc = (ang_vel_body - last_ang_vel_body_) / dt;
-
-    last_ang_vel_body_ = ang_vel_body;
-    last_stamp_        = this_stamp;
-
     // Transform acceleration:
-    const auto raw_accel_sensor = mrpt::math::TVector3D(  //
-        raw_imu.get(mrpt::obs::IMU_X_ACC),  //
-        raw_imu.get(mrpt::obs::IMU_Y_ACC),  //
-        raw_imu.get(mrpt::obs::IMU_Z_ACC));
+    if (raw_imu.has(mrpt::obs::IMU_X_ACC) && raw_imu.has(mrpt::obs::IMU_Y_ACC) &&
+        raw_imu.has(mrpt::obs::IMU_Z_ACC))
+    {
+        const auto raw_accel_sensor = mrpt::math::TVector3D(  //
+            raw_imu.get(mrpt::obs::IMU_X_ACC),  //
+            raw_imu.get(mrpt::obs::IMU_Y_ACC),  //
+            raw_imu.get(mrpt::obs::IMU_Z_ACC));
 
-    //  a_imu  = a_body + α×t + ω×(ω×t)  ==>
-    //  a_body = a_imu - α×t - ω×(ω×t)
-    const auto t = raw_imu.sensorPose.translation();
+        // Rotate acceleration from sensor frame to body frame:
+        const auto accel_body_rotated = imu.sensorPose.rotateVector(raw_accel_sensor);
 
-    const auto accel_body =
-        raw_accel_sensor - mrpt::math::crossProduct3D(ang_acc, t) -
-        mrpt::math::crossProduct3D(ang_vel_body, -mrpt::math::crossProduct3D(ang_vel_body, t));
+        //  a_imu  = a_body + α×t + ω×(ω×t)  ==>
+        //  a_body = R * a_imu - α×t - ω×(ω×t)
+        const auto t = raw_imu.sensorPose.translation();
 
-    imu.set(mrpt::obs::IMU_X_ACC, accel_body.x);
-    imu.set(mrpt::obs::IMU_Y_ACC, accel_body.y);
-    imu.set(mrpt::obs::IMU_Z_ACC, accel_body.z);
+        const auto accel_body =
+            accel_body_rotated - mrpt::math::crossProduct3D(ang_acc, t) -
+            mrpt::math::crossProduct3D(ang_vel_body, mrpt::math::crossProduct3D(ang_vel_body, t));
+
+        imu.set(mrpt::obs::IMU_X_ACC, accel_body.x);
+        imu.set(mrpt::obs::IMU_Y_ACC, accel_body.y);
+        imu.set(mrpt::obs::IMU_Z_ACC, accel_body.z);
+    }
 
     // Mark the new reference frame:
     imu.sensorPose = mrpt::poses::CPose3D::Identity();
