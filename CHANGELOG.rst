@@ -2,6 +2,14 @@
 Changelog for package mola_imu_preintegration
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+Forthcoming
+-----------
+* Merge pull request `#1 <https://github.com/MOLAorg/mola_imu_preintegration/issues/1>`_ from MOLAorg/feat/transform-without-w
+  ImuTransformer: work on acceleration even without omega
+* BUG FIX: Wrong copy-paste sign error in centripetal acceleration
+* ImuTransformer: work on acceleration even without omega
+* Contributors: Jose Luis Blanco-Claraco
+
 1.14.1 (2025-12-26)
 -------------------
 * Add option 'use_imu_orientation' to disable using IMU orientation for initialization
