@@ -28,11 +28,4 @@ See this package page [in the documentation](https://docs.mola-slam.org/latest/m
 ## License
 This package is released under the GNU GPL v3 license. Other options available upon request.
 
-```cpp
-/*               _
- _ __ ___   ___ | | __ _
-| '_ ` _ \ / _ \| |/ _` | Modular Optimization framework for
-| | | | | | (_) | | (_| | Localization and mApping (MOLA)
-|_| |_| |_|\___/|_|\__,_| https://github.com/MOLAorg/mola
-*/
-```
+Contributions require acceptance of the Contributor License Agreement (CLA).
