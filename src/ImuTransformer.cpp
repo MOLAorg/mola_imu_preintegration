@@ -36,7 +36,9 @@ mrpt::obs::CObservationIMU ImuTransformer::process(const mrpt::obs::CObservation
                            raw_imu.has(mrpt::obs::IMU_WZ);
 
     mrpt::math::TVector3D ang_vel_body = {0, 0, 0};
-    mrpt::math::TVector3D ang_acc      = {0, 0, 0};
+    // ang_acc is initialised to the current EMA state so that, if hasAngVel is
+    // false, the last filtered estimate is reused rather than forcing zero.
+    mrpt::math::TVector3D ang_acc = filtered_ang_acc_;
 
     if (hasAngVel)
     {
@@ -51,7 +53,9 @@ mrpt::obs::CObservationIMU ImuTransformer::process(const mrpt::obs::CObservation
         imu.set(mrpt::obs::IMU_WY, ang_vel_body.y);
         imu.set(mrpt::obs::IMU_WZ, ang_vel_body.z);
 
-        // Estimate angular acceleration:
+        // Estimate angular acceleration via finite difference, then apply an
+        // exponential moving average (EMA) low-pass filter to suppress the
+        // amplified gyro noise that finite differencing introduces.
         const auto this_stamp = mrpt::Clock::toDouble(raw_imu.timestamp);
         double     dt         = this_stamp - last_stamp_;
         if (dt <= 0 || dt > 1.0)
@@ -61,7 +65,34 @@ mrpt::obs::CObservationIMU ImuTransformer::process(const mrpt::obs::CObservation
             dt = 1.0 / 100.0;
         }
 
-        ang_acc = (ang_vel_body - last_ang_vel_body_) / dt;
+        if (first_sample_)
+        {
+            // On the very first call last_ang_vel_body_ is zero, so the raw
+            // finite difference would produce a large spurious spike equal to
+            // ang_vel_body / dt.  Bootstrap the filter state to zero instead
+            // and skip the lever-arm correction for this sample.
+            filtered_ang_acc_ = {0, 0, 0};
+            filtered_ang_vel_ = ang_vel_body;  // bootstrap to current reading; no prior exists
+            first_sample_     = false;
+        }
+        else
+        {
+            // Raw finite-difference angular acceleration:
+            const auto raw_ang_acc = (ang_vel_body - last_ang_vel_body_) / dt;
+
+            // EMA low-pass filter for angular acceleration:
+            //   y[n] = alpha * x[n] + (1 - alpha) * y[n-1]
+            // alpha close to 0: heavy smoothing; alpha = 1: no filtering.
+            const double alpha_acc = parameters.ang_acc_lpf_alpha;
+            filtered_ang_acc_ = raw_ang_acc * alpha_acc + filtered_ang_acc_ * (1.0 - alpha_acc);
+
+            // EMA low-pass filter for angular velocity (used only in the
+            // centripetal lever-arm term; the output channels stay unfiltered):
+            const double alpha_vel = parameters.ang_vel_lpf_alpha;
+            filtered_ang_vel_ = ang_vel_body * alpha_vel + filtered_ang_vel_ * (1.0 - alpha_vel);
+        }
+
+        ang_acc = filtered_ang_acc_;
 
         last_ang_vel_body_ = ang_vel_body;
         last_stamp_        = this_stamp;
@@ -83,9 +114,15 @@ mrpt::obs::CObservationIMU ImuTransformer::process(const mrpt::obs::CObservation
         //  a_body = R * a_imu - α×t - ω×(ω×t)
         const auto t = raw_imu.sensorPose.translation();
 
+        // On the first sample ang_acc is zero (see above), so the lever-arm
+        // Euler term contributes nothing and no spike is introduced.
+        // filtered_ang_vel_ is used for the centripetal term instead of the
+        // raw ang_vel_body to suppress quadratic amplification of gyro noise;
+        // the output IMU_WX/WY/WZ channels remain the unfiltered rotated reading.
         const auto accel_body =
             accel_body_rotated - mrpt::math::crossProduct3D(ang_acc, t) -
-            mrpt::math::crossProduct3D(ang_vel_body, mrpt::math::crossProduct3D(ang_vel_body, t));
+            mrpt::math::crossProduct3D(
+                filtered_ang_vel_, mrpt::math::crossProduct3D(filtered_ang_vel_, t));
 
         imu.set(mrpt::obs::IMU_X_ACC, accel_body.x);
         imu.set(mrpt::obs::IMU_Y_ACC, accel_body.y);
