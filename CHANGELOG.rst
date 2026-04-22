@@ -2,8 +2,8 @@
 Changelog for package mola_imu_preintegration
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Forthcoming
------------
+1.16.0 (2026-04-22)
+-------------------
 * Merge pull request `#2 <https://github.com/MOLAorg/mola_imu_preintegration/issues/2>`_ from MOLAorg/feat/implement-low-pass-filters
   Implement low-pass filtering for acc/omega (more stable transformed IMU vectors)
 * Add formal CLA
