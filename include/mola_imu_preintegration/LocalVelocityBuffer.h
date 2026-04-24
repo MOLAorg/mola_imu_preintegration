@@ -127,6 +127,13 @@ class LocalVelocityBuffer
      */
     SampleHistory collect_samples_around_reference_time(double half_time_span) const;
 
+    /** Returns all samples with timestamps strictly greater than `from` and less than or equal
+     * to `to`. If `to` is not provided, there is no upper bound (i.e. returns samples in
+     * `(from, +inf)`). Returned samples retain their original (absolute) timestamps.
+     */
+    SamplesByTime window_since(
+        const TimeStamp& from, const std::optional<TimeStamp>& to = std::nullopt) const;
+
     /// reset the buffer, clearing all entries
     void clear() { *this = {}; }
 

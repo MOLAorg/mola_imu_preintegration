@@ -77,6 +77,23 @@ void LocalVelocityBuffer::delete_too_old_entries(const TimeStamp& now)
     deleteOldEntries(linear_accelerations_);
     deleteOldEntries(orientations_);
 }
+auto LocalVelocityBuffer::window_since(const TimeStamp& from, const std::optional<TimeStamp>& to)
+    const -> LocalVelocityBuffer::SamplesByTime
+{
+    SamplesByTime result;
+    auto          copyRange = [&](const auto& src, auto& dst)
+    {
+        auto it_lo = src.upper_bound(from);  // strictly greater than 'from'
+        auto it_hi = to.has_value() ? src.upper_bound(*to) : src.end();  // ≤ to
+        dst.insert(it_lo, it_hi);
+    };
+    copyRange(orientations_, result.q);
+    copyRange(linear_velocities_, result.v_b);
+    copyRange(linear_accelerations_, result.a_b);
+    copyRange(angular_velocities_, result.w_b);
+    return result;
+}
+
 auto LocalVelocityBuffer::collect_samples_around_reference_time(double half_time_span) const
     -> LocalVelocityBuffer::SampleHistory
 {
