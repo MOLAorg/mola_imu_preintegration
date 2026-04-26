@@ -149,3 +149,13 @@ class LocalVelocityBuffer
 };
 
 }  // namespace mola::imu
+
+/** Feature macro: LocalVelocityBuffer exposes window_since(from, to),
+ *  used by the online gravity-rebake feature in mola_lidar_odometry to
+ *  drain the per-keyframe IMU sample window. Downstream packages in
+ *  separate repos should guard usage with
+ *  `#if defined(MOLA_IMU_PREINTEGRATION_HAS_WINDOW_SINCE)` (combined
+ *  with `__has_include(<mola_imu_preintegration/LocalVelocityBuffer.h>)`)
+ *  to remain buildable against older `mola_imu_preintegration` checkouts.
+ */
+#define MOLA_IMU_PREINTEGRATION_HAS_WINDOW_SINCE 1

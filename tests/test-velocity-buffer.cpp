@@ -187,6 +187,70 @@ void unit_test_yaml_roundtrip()
     std::cout << "✅ LocalVelocityBuffer unit_test_yaml_roundtrip passed!" << std::endl;
 }
 
+void unit_test_window_since()
+{
+    mola::imu::LocalVelocityBuffer buffer;
+
+    const double t0 = 1000.0;
+
+    // Five samples at t0, t0+0.1, t0+0.2, t0+0.3, t0+0.4 in each channel.
+    for (int i = 0; i < 5; ++i)
+    {
+        const double t = t0 + 0.1 * i;
+        buffer.add_linear_velocity(t, {static_cast<double>(i), 0.0, 0.0});
+        buffer.add_linear_acceleration(t, {0.0, static_cast<double>(i), 0.0});
+        buffer.add_angular_velocity(t, {0.0, 0.0, static_cast<double>(i)});
+    }
+
+    // 1) Open-ended window: strictly greater than `from`.
+    {
+        const auto w = buffer.window_since(t0 + 0.15);
+        // Expects samples at t0+0.2, t0+0.3, t0+0.4 (3 of each).
+        ASSERT_EQUAL_(w.v_b.size(), 3);
+        ASSERT_EQUAL_(w.a_b.size(), 3);
+        ASSERT_EQUAL_(w.w_b.size(), 3);
+
+        const auto first_v = w.v_b.begin();
+        ASSERT_NEAR_(first_v->first, t0 + 0.2, 1e-9);
+        ASSERT_NEAR_(first_v->second.x, 2.0, 1e-9);
+    }
+
+    // 2) Bounded window (from, to]: strictly greater than `from`, less than
+    //    or equal to `to`.
+    {
+        const auto w = buffer.window_since(t0, t0 + 0.2);
+        // (1000, 1000.2] expects t0+0.1 and t0+0.2 (2 of each).
+        ASSERT_EQUAL_(w.v_b.size(), 2);
+        ASSERT_EQUAL_(w.a_b.size(), 2);
+        ASSERT_EQUAL_(w.w_b.size(), 2);
+
+        const auto last_a = w.a_b.rbegin();
+        ASSERT_NEAR_(last_a->first, t0 + 0.2, 1e-9);
+        ASSERT_NEAR_(last_a->second.y, 2.0, 1e-9);
+    }
+
+    // 3) Boundary semantics: `from` itself is excluded; `to` itself is
+    //    included.
+    {
+        const auto w = buffer.window_since(t0, t0);
+        ASSERT_EQUAL_(w.v_b.size(), 0);
+
+        const auto w2 = buffer.window_since(t0 - 1.0, t0);
+        ASSERT_EQUAL_(w2.v_b.size(), 1);
+        ASSERT_NEAR_(w2.v_b.begin()->first, t0, 1e-9);
+    }
+
+    // 4) Empty result when `from` is past the last sample.
+    {
+        const auto w = buffer.window_since(t0 + 100.0);
+        ASSERT_EQUAL_(w.v_b.size(), 0);
+        ASSERT_EQUAL_(w.a_b.size(), 0);
+        ASSERT_EQUAL_(w.w_b.size(), 0);
+    }
+
+    std::cout << "OK LocalVelocityBuffer unit_test_window_since passed!" << std::endl;
+}
+
 }  // namespace
 
 int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv)
@@ -196,6 +260,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv)
         unit_test_basic_api();
         unit_test_basic_yaml();
         unit_test_yaml_roundtrip();
+        unit_test_window_since();
     }
     catch (std::exception& e)
     {
