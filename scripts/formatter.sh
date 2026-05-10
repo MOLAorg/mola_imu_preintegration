@@ -15,5 +15,5 @@ find \
     include \
     src \
     tests \
-    -iname "*.h" -o -iname "*.hpp" -o -iname "*.cpp" -o -iname "*.c" \
+    \( -iname "*.h" -o -iname "*.hpp" -o -iname "*.cpp" -o -iname "*.c" \) \
   -print0 | xargs -0 clang-format-14 "${MODE[@]}"
