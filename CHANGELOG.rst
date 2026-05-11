@@ -2,8 +2,8 @@
 Changelog for package mola_imu_preintegration
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Forthcoming
------------
+1.16.1 (2026-05-11)
+-------------------
 * Merge pull request `#6 <https://github.com/MOLAorg/mola_imu_preintegration/issues/6>`_ from MOLAorg/simplify-ci
   CI: simplify clang-format helpers and use ros: docker images for stable builds
 * CI: simplify clang-format helpers and use ros: docker images for stable builds
