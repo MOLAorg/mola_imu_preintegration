@@ -2,6 +2,37 @@
 Changelog for package mola_imu_preintegration
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+Forthcoming
+-----------
+* Merge pull request `#6 <https://github.com/MOLAorg/mola_imu_preintegration/issues/6>`_ from MOLAorg/simplify-ci
+  CI: simplify clang-format helpers and use ros: docker images for stable builds
+* CI: simplify clang-format helpers and use ros: docker images for stable builds
+  - Replace complex Python-based clang_git_format with a simple scripts/formatter.sh supporting --check
+  - Standardize formatter to scripts/formatter.sh (renamed from clang-formatter.sh)
+  - Simplify check-clang-format.yml to just apt-install clang-format-14 and run the script
+  - Use ros:humble / ros:jazzy pre-built images for stable CI builds (faster, no setup-ros needed)
+  Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
+* Merge pull request `#5 <https://github.com/MOLAorg/mola_imu_preintegration/issues/5>`_ from MOLAorg/bump-cmake-version
+  bump min req cmake version to 3.22
+* CI: sensible job names
+* bump min req cmake version to 3.22
+* Merge pull request `#4 <https://github.com/MOLAorg/mola_imu_preintegration/issues/4>`_ from MOLAorg/feat/window_since2
+  feat(mola_imu_preintegration): MOLA_IMU_PREINTEGRATION_HAS_WINDOW_SINCE macro + tests
+* feat(mola_imu_preintegration): MOLA_IMU_PREINTEGRATION_HAS_WINDOW_SINCE macro + tests
+  Expose MOLA_IMU_PREINTEGRATION_HAS_WINDOW_SINCE at the end of the
+  LocalVelocityBuffer header so downstream packages in separate repos
+  (mola_lidar_odometry's online gravity rebake) can guard usage with
+  __has_include + this macro and stay buildable against older
+  mola_imu_preintegration checkouts.
+  Add unit tests for window_since covering open-ended and bounded
+  windows, the (from, to] boundary semantics, and the empty-result
+  case.
+  Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
+* Merge pull request `#3 <https://github.com/MOLAorg/mola_imu_preintegration/issues/3>`_ from MOLAorg/feat/window_since
+  feat: Add API entry window_since()
+* feat: Add API entry window_since()
+* Contributors: Jose Luis Blanco-Claraco
+
 1.16.0 (2026-04-22)
 -------------------
 * Merge pull request `#2 <https://github.com/MOLAorg/mola_imu_preintegration/issues/2>`_ from MOLAorg/feat/implement-low-pass-filters
