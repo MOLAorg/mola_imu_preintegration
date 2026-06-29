@@ -153,7 +153,9 @@ class LocalVelocityBuffer
 
     TimeStamp reference_zero_time = 0.0;  //!< Reference time for each lidar scan
 
-    void delete_too_old_entries(const TimeStamp& now);
+    // Prunes entries older than max_time_window relative to the latest timestamp
+    // across all maps, so out-of-order insertions never evict newer data.
+    void delete_too_old_entries();
 };
 
 }  // namespace mola::imu

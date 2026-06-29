@@ -41,38 +41,58 @@ void LocalVelocityBuffer::add_linear_velocity(
     const TimeStamp& time, const LinearVelocity& v_vehicle)
 {
     linear_velocities_[time] = v_vehicle;
-    delete_too_old_entries(time);
+    delete_too_old_entries();
 }
 
 void LocalVelocityBuffer::add_linear_acceleration(
     const TimeStamp& time, const LinearAcceleration& a_vehicle)
 {
     linear_accelerations_[time] = a_vehicle;
-    delete_too_old_entries(time);
+    delete_too_old_entries();
 }
 
 void LocalVelocityBuffer::add_angular_velocity(
     const TimeStamp& time, const AngularVelocity& w_vehicle)
 {
     angular_velocities_[time] = w_vehicle;
-    delete_too_old_entries(time);
+    delete_too_old_entries();
 }
 
 void LocalVelocityBuffer::add_orientation(const TimeStamp& time, const SO3& attitude)
 {
     orientations_[time] = attitude;
-    delete_too_old_entries(time);
+    delete_too_old_entries();
 }
 
-void LocalVelocityBuffer::delete_too_old_entries(const TimeStamp& now)
+void LocalVelocityBuffer::delete_too_old_entries()
 {
+    // Use the true latest timestamp across all maps so that an out-of-order
+    // (older) insertion never causes newer entries to be wrongly evicted.
+    TimeStamp latest = 0.0;
+    if (!linear_velocities_.empty())
+    {
+        latest = std::max(latest, linear_velocities_.rbegin()->first);
+    }
+    if (!angular_velocities_.empty())
+    {
+        latest = std::max(latest, angular_velocities_.rbegin()->first);
+    }
+    if (!linear_accelerations_.empty())
+    {
+        latest = std::max(latest, linear_accelerations_.rbegin()->first);
+    }
+    if (!orientations_.empty())
+    {
+        latest = std::max(latest, orientations_.rbegin()->first);
+    }
+
     const double max_time_window = parameters.max_time_window;
 
     auto deleteOldEntries = [&](auto& map)
     {
         for (auto it = map.begin(); it != map.end();)
         {
-            if (now - it->first > max_time_window)
+            if (latest - it->first > max_time_window)
             {
                 it = map.erase(it);
             }

@@ -282,6 +282,36 @@ void unit_test_window_since()
     std::cout << "OK LocalVelocityBuffer unit_test_window_since passed!" << std::endl;
 }
 
+void unit_test_pruning_uses_latest_timestamp()
+{
+    // An out-of-order (older) insertion must not evict newer entries.
+    // Window: 0.5 s.  Insert t=1000.0, t=1000.4, then t=999.9 (older).
+    // After the late insert, the true latest is still 1000.4, so the
+    // cutoff is 999.9 -- t=1000.0 must survive.
+    LocalVelocityBuffer buf;
+    buf.parameters.max_time_window = 0.5;
+
+    buf.add_linear_velocity(1000.0, {1.0, 0.0, 0.0});
+    buf.add_linear_velocity(1000.4, {2.0, 0.0, 0.0});
+    // Out-of-order sample: slightly older than the first entry.
+    buf.add_linear_velocity(999.9, {0.0, 0.0, 0.0});
+
+    // latest = 1000.4, cutoff = 999.9 --> all three survive (1000.4-999.9=0.5,
+    // exactly at the boundary; entries with age == max_time_window are kept).
+    ASSERT_EQUAL_(buf.get_linear_velocities().size(), 3);
+
+    // Now add a sample far enough ahead that t=999.9 should be pruned.
+    buf.add_linear_velocity(1000.6, {3.0, 0.0, 0.0});
+    // latest = 1000.6, cutoff = 1000.1 --> 999.9 and 1000.0 are evicted,
+    // 1000.4 and 1000.6 survive.
+    ASSERT_EQUAL_(buf.get_linear_velocities().size(), 2);
+    ASSERT_(buf.get_linear_velocities().count(1000.4) == 1);
+    ASSERT_(buf.get_linear_velocities().count(1000.6) == 1);
+
+    std::cout << "OK LocalVelocityBuffer unit_test_pruning_uses_latest_timestamp passed!"
+              << std::endl;
+}
+
 }  // namespace
 
 int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv)
@@ -293,6 +323,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv)
         unit_test_yaml_roundtrip();
         unit_test_yaml_epoch_precision();
         unit_test_window_since();
+        unit_test_pruning_uses_latest_timestamp();
     }
     catch (std::exception& e)
     {
