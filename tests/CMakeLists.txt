@@ -26,3 +26,10 @@ mola_add_test(
   LINK_LIBRARIES
     mola::mola_imu_preintegration
 )
+
+mola_add_test(
+  TARGET  test-imu-transformer
+  SOURCES test-imu-transformer.cpp
+  LINK_LIBRARIES
+    mola::mola_imu_preintegration
+)
