@@ -67,7 +67,7 @@ class ImuInitialCalibrator
 
         /// Gyroscope additive noise standard deviation
         mrpt::math::TVector3D noise_stddev_gyro{0, 0, 0};
-        ///  Accelerometer bias, already in the base_link/body frame
+        /// Accelerometer additive noise standard deviation, in the base_link/body frame
         mrpt::math::TVector3D noise_stddev_acc{0, 0, 0};
 
         double pitch = 0;  //!< Estimated pitch angle, assuming being at rest during calibration
