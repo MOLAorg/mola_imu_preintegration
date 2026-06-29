@@ -1,12 +1,24 @@
 # Based on GTSAM file (by @ProfFan)
 name: CI Build colcon
 
-on: [push]
+on:
+  push:
+    branches: [ "develop" ]
+  pull_request:
+    types: [ opened, synchronize, reopened ]
+
+# Minimal GITHUB_TOKEN permissions (principle of least privilege)
+permissions:
+  contents: read
 
 jobs:
-  build_docker:
+  # -----------------------------------------------------------------------
+  # Job 1: GitHub-hosted runners (x86_64). Runs for all pushes and PRs,
+  # including PRs from forks.
+  # -----------------------------------------------------------------------
+  build_github_hosted:
     # On Linux, iterates on all ROS 2 distributions.
-    name: ${{ matrix.name }}
+    name: "x86_64 / ${{ matrix.name }}"
     runs-on: ubuntu-latest
     env:
       DEBIAN_FRONTEND: noninteractive
@@ -15,10 +27,10 @@ jobs:
       matrix:
         include:
           # Humble Hawksbill (May 2022 - May 2027)
-          - name: humble stable
-            docker_image: ros:humble
-            ros_distribution: humble
-            use_ros_testing: false
+          #- name: humble stable
+          #  docker_image: ubuntu:jammy
+          #  ros_distribution: humble
+          #  use_ros_testing: false
 
           - name: humble testing
             docker_image: ubuntu:jammy
@@ -31,21 +43,38 @@ jobs:
             ros_distribution: jazzy
             use_ros_testing: false
 
-          - name: jazzy testing
+          - name: jazzy testing + coverage
             docker_image: ubuntu:noble
             ros_distribution: jazzy
             use_ros_testing: true
-
+            coverage_run: true
           # Rolling Ridley (No End-Of-Life)
-          - name: rolling stable
-            docker_image: ubuntu:noble
-            ros_distribution: rolling
-            use_ros_testing: false
+          # TODO: migrate to ubuntu:resolute once rolling packages are published there.
+          # Track: https://discourse.openrobotics.org/t/preparing-for-rolling-sync-2026-04-23/54223
+          #- name: rolling stable
+          #  docker_image: ubuntu:noble
+          #  ros_distribution: rolling
+          #  use_ros_testing: false
 
-          - name: rolling testing
-            docker_image: ubuntu:noble
-            ros_distribution: rolling
-            use_ros_testing: true
+          #- name: rolling testing
+          #  docker_image: ubuntu:noble
+          #  ros_distribution: rolling
+          #  use_ros_testing: true
+
+          #- name: rolling testing + coverage
+          #  docker_image: ubuntu:noble
+          #  ros_distribution: rolling
+          #  use_ros_testing: true
+          #  coverage_run: true
+
+          # Lyrical Luth (May 2026 - May 2031, LTS)
+          # Beta packages available on resolute; GA release expected May 22, 2026.
+          # allow_failure until GA is released.
+          #- name: lyrical testing (allow failure)
+          #  docker_image: ubuntu:resolute
+          #  ros_distribution: lyrical
+          #  use_ros_testing: true
+          #  allow_failure: true
 
     container:
       image: ${{ matrix.docker_image }}
@@ -59,7 +88,16 @@ jobs:
           apt-get -y install git curl gnupg2 ca-certificates
           git clone https://$TOKEN@github.com/$GITHUB_REPOSITORY.git --recursive "$GITHUB_WORKSPACE"
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          git checkout $GITHUB_SHA
+          # Check out the exact commit the event points at. On push, GITHUB_SHA
+          # is immutable (GITHUB_REF would track the branch tip, which may have
+          # advanced). On pull_request, GITHUB_SHA is the auto-generated merge
+          # commit (not fetchable by SHA), so fetch GITHUB_REF (refs/pull/N/merge).
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            git fetch origin "$GITHUB_REF"
+          else
+            git fetch origin "$GITHUB_SHA"
+          fi
+          git checkout FETCH_HEAD
           git submodule update --init --recursive
 
       # Pre-built ros:* images have ROS base but need colcon/rosdep tooling.
@@ -70,8 +108,168 @@ jobs:
           apt-get install -y python3-colcon-common-extensions python3-rosdep ros-dev-tools
           test -f /etc/ros/rosdep/sources.list.d/20-default.list || rosdep init
 
+      # apt-key was removed in Ubuntu 26.04 (Resolute Raccoon). For resolute-based
+      # builds we set up the ROS repo manually before setup-ros runs, which would
+      # otherwise call apt-key internally and fail.
+      - name: Setup ROS apt repository (Ubuntu 26.04+)
+        if: matrix.docker_image == 'ubuntu:resolute'
+        run: |
+          curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key \
+            -o /usr/share/keyrings/ros-archive-keyring.gpg
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] \
+            http://packages.ros.org/ros2/ubuntu $(. /etc/os-release && echo $UBUNTU_CODENAME) main" \
+            | tee /etc/apt/sources.list.d/ros2.list > /dev/null
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] \
+            http://packages.ros.org/ros2-testing/ubuntu $(. /etc/os-release && echo $UBUNTU_CODENAME) main" \
+            | tee /etc/apt/sources.list.d/ros2-testing.list > /dev/null
+          apt-get update
+
       - name: setup ROS environment
         if: matrix.use_ros_testing == true
+        uses: ros-tooling/setup-ros@v0.7
+        with:
+          required-ros-distributions: ${{ matrix.ros_distribution }}
+          use-ros2-testing: ${{ matrix.use_ros_testing }}
+
+      # On resolute, setup-ros can't be used (calls apt-key which is gone).
+      # Install the equivalent packages manually instead.
+      - name: Setup ROS environment (Ubuntu 26.04+)
+        if: matrix.docker_image == 'ubuntu:resolute'
+        run: |
+          apt-get install -y \
+            ros-${{ matrix.ros_distribution }}-ros-base \
+            python3-rosdep \
+            python3-colcon-common-extensions \
+            python3-colcon-mixin \
+            ros-dev-tools
+          rosdep init || true
+          rosdep update
+
+      - name: Install rosdep dependencies
+        run: |
+          . /opt/ros/*/setup.sh
+          rosdep update
+          rosdep install --from-paths . --ignore-src -y
+
+      - name: Install lcov for coverage analysis
+        if: matrix.coverage_run == true
+        run: |
+          apt-get update
+          apt-get install -y lcov
+
+      - name: Build with colcon
+        run: |
+          . /opt/ros/*/setup.sh
+          env
+
+          # Inject coverage instrumentation flags
+          if [ "${{ matrix.coverage_run }}" = "true" ]; then
+            echo "Enabling coverage instrumentation..."
+            EXTRA_CMAKE_ARGS="$EXTRA_CMAKE_ARGS \
+              -DCMAKE_BUILD_TYPE=Debug \
+              -DCMAKE_CXX_FLAGS=--coverage \
+              -DCMAKE_C_FLAGS=--coverage \
+              -DCMAKE_EXE_LINKER_FLAGS=--coverage \
+              -DCMAKE_SHARED_LINKER_FLAGS=--coverage"
+          fi
+
+          env
+          MAKEFLAGS="-j2" colcon build \
+            --symlink-install \
+            --parallel-workers 2 \
+            --event-handlers console_direct+ \
+            --cmake-args $EXTRA_CMAKE_ARGS
+
+      - name: Run unit tests
+        run: |
+          . /opt/ros/*/setup.sh
+          colcon test --event-handlers console_direct+
+          colcon test-result --verbose
+
+      - name: Generate coverage report
+        if: matrix.coverage_run == true
+        run: |
+          lcov --capture --directory build/ --output-file coverage.info \
+            --ignore-errors mismatch --rc geninfo_unexecuted_blocks=1
+          lcov --remove coverage.info '/opt/ros/*' '/usr/*' \
+            --ignore-errors unused --output-file coverage_filtered.info
+          echo "--- Coverage Summary ---"
+          lcov --list coverage_filtered.info
+          echo "------------------------------------------"
+
+      - name: Upload coverage to Codecov
+        if: matrix.coverage_run == true
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage_filtered.info
+          slug: MOLAorg/mola_imu_preintegration
+          flags: colcon,jazzy,gcc
+
+  # -----------------------------------------------------------------------
+  # Job 2: Self-hosted runner (arm64). Only runs for pushes or PRs from
+  # the same repository — never for fork PRs — to protect the runner from
+  # untrusted code.
+  # -----------------------------------------------------------------------
+  build_self_hosted:
+    name: "arm64 / ${{ matrix.name }}"
+    if: >
+      github.event_name == 'push' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [ self-hosted, Linux, ARM64 ]
+    env:
+      DEBIAN_FRONTEND: noninteractive
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Humble Hawksbill (May 2022 - May 2027)
+          - name: humble stable
+            docker_image: ubuntu:jammy
+            ros_distribution: humble
+            use_ros_testing: false
+
+          - name: humble testing
+            docker_image: ubuntu:jammy
+            ros_distribution: humble
+            use_ros_testing: true
+
+          # Jazzy Jalisco (May 2024 - May 2029)
+          - name: jazzy stable
+            docker_image: ubuntu:noble
+            ros_distribution: jazzy
+            use_ros_testing: false
+
+          - name: jazzy testing
+            docker_image: ubuntu:noble
+            ros_distribution: jazzy
+            use_ros_testing: true
+
+    container:
+      image: ${{ matrix.docker_image }}
+      options: --add-host=host.docker.internal:host-gateway # for apt-cacher-ng
+
+    steps:
+      # Scope the apt-cacher-ng proxy to apt only. A global http_proxy/https_proxy
+      # also routed non-apt downloads (e.g. ament_xmllint fetching
+      # package_format3.xsd from download.ros.org) through the package cache,
+      # which it cannot serve, breaking the xmllint test.
+      - name: Configure apt proxy (apt-cacher-ng)
+        run: |
+          printf 'Acquire::http::Proxy "http://host.docker.internal:3142";\n' > /etc/apt/apt.conf.d/01proxy
+          printf 'Acquire::https::Proxy "http://host.docker.internal:3142";\n' >> /etc/apt/apt.conf.d/01proxy
+
+      - name: Install Git
+        run: apt-get update && apt-get install -y git
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false # safer
+
+      - name: setup ROS environment
         uses: ros-tooling/setup-ros@v0.7
         with:
           required-ros-distributions: ${{ matrix.ros_distribution }}
@@ -80,17 +278,13 @@ jobs:
       - name: Install rosdep dependencies
         run: |
           . /opt/ros/*/setup.sh
-          rosdep update
+          for i in 1 2 3; do rosdep update && break || { echo "rosdep update failed (attempt $i/3), retrying..."; sleep 10; }; done
           rosdep install --from-paths . --ignore-src -r -y
 
       - name: Build with colcon
         run: |
           . /opt/ros/*/setup.sh
-          env
-          MAKEFLAGS="-j2" colcon build \
-            --symlink-install \
-            --parallel-workers 2 \
-            --event-handlers console_direct+
+          MAKEFLAGS="-j2" colcon build --symlink-install --parallel-workers 2 --event-handlers console_direct+
 
       - name: Run unit tests
         run: |

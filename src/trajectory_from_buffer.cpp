@@ -143,10 +143,20 @@ Trajectory mola::imu::trajectory_from_buffer(
     }
 
     // and assign the closest IMU reading to t=0:
-    t[0].w_b = mrpt::containers::find_closest(samples.by_type.w_b, 0.0)->second - bias_gyro;
-    t[0].a_b = mrpt::containers::find_closest(samples.by_type.a_b, 0.0)->second - bias_acc;
+    const auto closest_w_at_0 = mrpt::containers::find_closest(samples.by_type.w_b, 0.0);
+    const auto closest_a_at_0 = mrpt::containers::find_closest(samples.by_type.a_b, 0.0);
+    ASSERTMSG_(
+        closest_w_at_0, "At least one entry with angular velocity is needed for IMU integration");
+    ASSERTMSG_(
+        closest_a_at_0,
+        "At least one entry with linear acceleration is needed for IMU integration");
+    t[0].w_b = closest_w_at_0->second - bias_gyro;
+    t[0].a_b = closest_a_at_0->second - bias_acc;
 
     // 3) Copy the latest gravity-aligned hints on global orientations:
+    ASSERTMSG_(
+        !samples.by_time.empty(),
+        "At least one IMU sample with timestamp is needed for IMU integration");
     const double last_sample_rel_time = samples.by_time.rbegin()->first;
     const auto closest_q = mrpt::containers::find_closest(samples.by_type.q, last_sample_rel_time);
     ASSERTMSG_(

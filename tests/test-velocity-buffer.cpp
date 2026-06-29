@@ -115,8 +115,7 @@ void unit_test_yaml_roundtrip()
     LocalVelocityBuffer buf;
 
     // Fill with sample data
-    buf.parameters.max_time_window        = 2.0;
-    buf.parameters.tolerance_search_stamp = 1e-2;
+    buf.parameters.max_time_window = 2.0;
     buf.set_reference_zero_time(123.456);
 
     const LinearVelocity     v{1.0, 2.0, 3.0};
@@ -140,7 +139,6 @@ void unit_test_yaml_roundtrip()
 
     // Checks
     ASSERT_EQUAL_(buf2.parameters.max_time_window, buf.parameters.max_time_window);
-    ASSERT_EQUAL_(buf2.parameters.tolerance_search_stamp, buf.parameters.tolerance_search_stamp);
     ASSERT_EQUAL_(buf2.get_reference_zero_time(), buf.get_reference_zero_time());
 
     // linear velocities
@@ -185,6 +183,43 @@ void unit_test_yaml_roundtrip()
     }
 
     std::cout << "✅ LocalVelocityBuffer unit_test_yaml_roundtrip passed!" << std::endl;
+}
+
+void unit_test_yaml_epoch_precision()
+{
+    // Absolute UNIX-epoch timestamps (~1.7e9) with sub-millisecond fractions
+    // exceed the precision of the legacy "%.09lf" key format. Verify the
+    // lossless encoding recovers the exact double-valued keys on round-trip.
+    LocalVelocityBuffer buf;
+    buf.set_reference_zero_time(0.0);
+    buf.parameters.max_time_window = 1.0e12;  // never prune in this test
+
+    const std::vector<TimeStamp> stamps = {
+        1755345252.123456789, 1755345252.987654321, 1755345253.000000001};
+
+    for (size_t i = 0; i < stamps.size(); ++i)
+    {
+        buf.add_linear_velocity(stamps[i], {static_cast<double>(i), 0.0, 0.0});
+    }
+
+    LocalVelocityBuffer buf2;
+    {
+        std::stringstream ss;
+        ss << buf.toYAML();
+        buf2.fromYAML(mrpt::containers::yaml::FromText(ss.str()));
+    }
+
+    ASSERT_EQUAL_(buf2.get_linear_velocities().size(), stamps.size());
+    for (const auto t : stamps)
+    {
+        const auto it = buf2.get_linear_velocities().find(t);
+        if (it == buf2.get_linear_velocities().end())
+        {
+            THROW_EXCEPTION_FMT("Timestamp %.17g not recovered exactly after YAML round-trip", t);
+        }
+    }
+
+    std::cout << "✅ LocalVelocityBuffer unit_test_yaml_epoch_precision passed!" << std::endl;
 }
 
 void unit_test_window_since()
@@ -251,6 +286,36 @@ void unit_test_window_since()
     std::cout << "OK LocalVelocityBuffer unit_test_window_since passed!" << std::endl;
 }
 
+void unit_test_pruning_uses_latest_timestamp()
+{
+    // An out-of-order (older) insertion must not evict newer entries.
+    // Window: 0.5 s.  Insert t=1000.0, t=1000.4, then t=999.9 (older).
+    // After the late insert, the true latest is still 1000.4, so the
+    // cutoff is 999.9 -- t=1000.0 must survive.
+    LocalVelocityBuffer buf;
+    buf.parameters.max_time_window = 0.5;
+
+    buf.add_linear_velocity(1000.0, {1.0, 0.0, 0.0});
+    buf.add_linear_velocity(1000.4, {2.0, 0.0, 0.0});
+    // Out-of-order sample: slightly older than the first entry.
+    buf.add_linear_velocity(999.9, {0.0, 0.0, 0.0});
+
+    // latest = 1000.4, cutoff = 999.9 --> all three survive (1000.4-999.9=0.5,
+    // exactly at the boundary; entries with age == max_time_window are kept).
+    ASSERT_EQUAL_(buf.get_linear_velocities().size(), 3);
+
+    // Now add a sample far enough ahead that t=999.9 should be pruned.
+    buf.add_linear_velocity(1000.6, {3.0, 0.0, 0.0});
+    // latest = 1000.6, cutoff = 1000.1 --> 999.9 and 1000.0 are evicted,
+    // 1000.4 and 1000.6 survive.
+    ASSERT_EQUAL_(buf.get_linear_velocities().size(), 2);
+    ASSERT_(buf.get_linear_velocities().count(1000.4) == 1);
+    ASSERT_(buf.get_linear_velocities().count(1000.6) == 1);
+
+    std::cout << "OK LocalVelocityBuffer unit_test_pruning_uses_latest_timestamp passed!"
+              << std::endl;
+}
+
 }  // namespace
 
 int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv)
@@ -260,7 +325,9 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv)
         unit_test_basic_api();
         unit_test_basic_yaml();
         unit_test_yaml_roundtrip();
+        unit_test_yaml_epoch_precision();
         unit_test_window_since();
+        unit_test_pruning_uses_latest_timestamp();
     }
     catch (std::exception& e)
     {

@@ -44,8 +44,7 @@ class LocalVelocityBuffer
     {
         Parameters() = default;
 
-        double max_time_window        = 0.5;  // seconds
-        double tolerance_search_stamp = 10e-3;  // seconds
+        double max_time_window = 0.5;  // seconds
     };
 
     Parameters parameters;
@@ -134,8 +133,17 @@ class LocalVelocityBuffer
     SamplesByTime window_since(
         const TimeStamp& from, const std::optional<TimeStamp>& to = std::nullopt) const;
 
-    /// reset the buffer, clearing all entries
-    void clear() { *this = {}; }
+    /** Clears all buffered samples and resets reference_zero_time to 0.
+     *  Does NOT reset parameters (use the default constructor for a full reset).
+     */
+    void clear()
+    {
+        linear_velocities_.clear();
+        angular_velocities_.clear();
+        linear_accelerations_.clear();
+        orientations_.clear();
+        reference_zero_time = 0.0;
+    }
 
    private:
     std::map<TimeStamp, LinearVelocity>     linear_velocities_;  // in the vehicle frame
@@ -145,7 +153,9 @@ class LocalVelocityBuffer
 
     TimeStamp reference_zero_time = 0.0;  //!< Reference time for each lidar scan
 
-    void delete_too_old_entries(const TimeStamp& now);
+    // Prunes entries older than max_time_window relative to the latest timestamp
+    // across all maps, so out-of-order insertions never evict newer data.
+    void delete_too_old_entries();
 };
 
 }  // namespace mola::imu

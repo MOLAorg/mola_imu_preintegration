@@ -46,7 +46,7 @@ namespace mola::imu
  * \note Based on Forster, C., Carlone, L., Dellaert, F., & Scaramuzza, D. (2015). IMU
  *       preintegration on manifold for efficient visual-inertial maximum-a-posteriori estimation.
  *
- * \sa IMUIntegrator
+ * \sa incremental_rotation()
  * \ingroup mola_imu_preintegration_grp
  */
 class ImuIntegrator
