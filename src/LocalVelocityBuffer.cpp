@@ -26,6 +26,17 @@
 
 using namespace mola::imu;
 
+namespace
+{
+/** Formats a timestamp as a string key that round-trips exactly for IEEE-754
+ * doubles. 17 significant decimal digits (DBL_DECIMAL_DIG) are guaranteed to
+ * recover the original value via std::stod(). The legacy "%.09lf" format was
+ * lossy for absolute UNIX epoch timestamps (~1.7e9); std::stod() still reads
+ * both, so old data remains loadable.
+ */
+std::string formatTimeKey(const TimeStamp& t) { return mrpt::format("%.17g", t); }
+}  // namespace
+
 void LocalVelocityBuffer::add_linear_velocity(
     const TimeStamp& time, const LinearVelocity& v_vehicle)
 {
@@ -149,8 +160,7 @@ mrpt::containers::yaml LocalVelocityBuffer::toYAML() const
             yamlState["linear_velocities"] = mrpt::containers::yaml::Map();
             for (const auto& [time, vel] : linear_velocities_)
             {
-                yamlState["linear_velocities"][mrpt::format("%.09lf", time)] =
-                    "'" + vel.asString() + "'";
+                yamlState["linear_velocities"][formatTimeKey(time)] = "'" + vel.asString() + "'";
             }
         }
 
@@ -159,8 +169,7 @@ mrpt::containers::yaml LocalVelocityBuffer::toYAML() const
             yamlState["angular_velocities"] = mrpt::containers::yaml::Map();
             for (const auto& [time, w] : angular_velocities_)
             {
-                yamlState["angular_velocities"][mrpt::format("%.09lf", time)] =
-                    "'" + w.asString() + "'";
+                yamlState["angular_velocities"][formatTimeKey(time)] = "'" + w.asString() + "'";
             }
         }
 
@@ -169,8 +178,7 @@ mrpt::containers::yaml LocalVelocityBuffer::toYAML() const
             yamlState["linear_accelerations"] = mrpt::containers::yaml::Map();
             for (const auto& [time, acc] : linear_accelerations_)
             {
-                yamlState["linear_accelerations"][mrpt::format("%.09lf", time)] =
-                    "'" + acc.asString() + "'";
+                yamlState["linear_accelerations"][formatTimeKey(time)] = "'" + acc.asString() + "'";
             }
         }
 
@@ -179,8 +187,7 @@ mrpt::containers::yaml LocalVelocityBuffer::toYAML() const
             yamlState["orientations"] = mrpt::containers::yaml::Map();
             for (const auto& [time, R] : orientations_)
             {
-                yamlState["orientations"][mrpt::format("%.09lf", time)] =
-                    "'" + R.inMatlabFormat() + "'";
+                yamlState["orientations"][formatTimeKey(time)] = "'" + R.inMatlabFormat() + "'";
             }
         }
 

@@ -185,6 +185,39 @@ void unit_test_yaml_roundtrip()
     std::cout << "✅ LocalVelocityBuffer unit_test_yaml_roundtrip passed!" << std::endl;
 }
 
+void unit_test_yaml_epoch_precision()
+{
+    // Absolute UNIX-epoch timestamps (~1.7e9) with sub-millisecond fractions
+    // exceed the precision of the legacy "%.09lf" key format. Verify the
+    // lossless encoding recovers the exact double-valued keys on round-trip.
+    LocalVelocityBuffer buf;
+    buf.set_reference_zero_time(0.0);
+    buf.parameters.max_time_window = 1.0e12;  // never prune in this test
+
+    const std::vector<TimeStamp> stamps = {
+        1755345252.123456789, 1755345252.987654321, 1755345253.000000001};
+
+    for (size_t i = 0; i < stamps.size(); ++i)
+    {
+        buf.add_linear_velocity(stamps[i], {static_cast<double>(i), 0.0, 0.0});
+    }
+
+    LocalVelocityBuffer buf2;
+    buf2.fromYAML(buf.toYAML());
+
+    ASSERT_EQUAL_(buf2.get_linear_velocities().size(), stamps.size());
+    for (const auto t : stamps)
+    {
+        const auto it = buf2.get_linear_velocities().find(t);
+        if (it == buf2.get_linear_velocities().end())
+        {
+            THROW_EXCEPTION_FMT("Timestamp %.17g not recovered exactly after YAML round-trip", t);
+        }
+    }
+
+    std::cout << "✅ LocalVelocityBuffer unit_test_yaml_epoch_precision passed!" << std::endl;
+}
+
 void unit_test_window_since()
 {
     mola::imu::LocalVelocityBuffer buffer;
@@ -258,6 +291,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv)
         unit_test_basic_api();
         unit_test_basic_yaml();
         unit_test_yaml_roundtrip();
+        unit_test_yaml_epoch_precision();
         unit_test_window_since();
     }
     catch (std::exception& e)
