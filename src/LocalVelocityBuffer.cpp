@@ -133,9 +133,8 @@ mrpt::containers::yaml LocalVelocityBuffer::toYAML() const
 
     // Parameters
     {
-        mrpt::containers::yaml yamlParams    = mrpt::containers::yaml::Map();
-        yamlParams["max_time_window"]        = parameters.max_time_window;
-        yamlParams["tolerance_search_stamp"] = parameters.tolerance_search_stamp;
+        mrpt::containers::yaml yamlParams = mrpt::containers::yaml::Map();
+        yamlParams["max_time_window"]     = parameters.max_time_window;
 
         root["parameters"] = yamlParams;
     }
@@ -273,9 +272,8 @@ void LocalVelocityBuffer::fromYAML(const mrpt::containers::yaml& y)
     // Parameters
     if (y.has("parameters"))
     {
-        const auto& params                = y["parameters"];
-        parameters.max_time_window        = params["max_time_window"].as<double>();
-        parameters.tolerance_search_stamp = params["tolerance_search_stamp"].as<double>();
+        const auto& params         = y["parameters"];
+        parameters.max_time_window = params["max_time_window"].as<double>();
     }
 
     // State

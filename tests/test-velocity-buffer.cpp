@@ -115,8 +115,7 @@ void unit_test_yaml_roundtrip()
     LocalVelocityBuffer buf;
 
     // Fill with sample data
-    buf.parameters.max_time_window        = 2.0;
-    buf.parameters.tolerance_search_stamp = 1e-2;
+    buf.parameters.max_time_window = 2.0;
     buf.set_reference_zero_time(123.456);
 
     const LinearVelocity     v{1.0, 2.0, 3.0};
@@ -140,7 +139,6 @@ void unit_test_yaml_roundtrip()
 
     // Checks
     ASSERT_EQUAL_(buf2.parameters.max_time_window, buf.parameters.max_time_window);
-    ASSERT_EQUAL_(buf2.parameters.tolerance_search_stamp, buf.parameters.tolerance_search_stamp);
     ASSERT_EQUAL_(buf2.get_reference_zero_time(), buf.get_reference_zero_time());
 
     // linear velocities
