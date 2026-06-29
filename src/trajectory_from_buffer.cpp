@@ -146,8 +146,7 @@ Trajectory mola::imu::trajectory_from_buffer(
     const auto closest_w_at_0 = mrpt::containers::find_closest(samples.by_type.w_b, 0.0);
     const auto closest_a_at_0 = mrpt::containers::find_closest(samples.by_type.a_b, 0.0);
     ASSERTMSG_(
-        closest_w_at_0,
-        "At least one entry with angular velocity is needed for IMU integration");
+        closest_w_at_0, "At least one entry with angular velocity is needed for IMU integration");
     ASSERTMSG_(
         closest_a_at_0,
         "At least one entry with linear acceleration is needed for IMU integration");
