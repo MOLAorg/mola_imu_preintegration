@@ -30,7 +30,6 @@ visual-inertial preintegrator** (no ΔV/ΔP, no covariance, no bias Jacobians ye
   gravity-aligned. Gravity vector default `(0,0,-9.81)`; accel-at-rest reads `(0,0,+g)`.
 - Quaternion YAML order is `[x,y,z,w]` (ROS/REP-103).
 - `cov_gyro`/`cov_acc` params exist but are **not yet consumed** by any algorithm.
-- `LocalVelocityBuffer::parameters.tolerance_search_stamp` is currently unused.
 - `trajectory_from_buffer` uses the sample closest to the **latest** timestamp as the anchor and
   integrates forward+backward; it assumes at least one orientation and one velocity sample exist.
 

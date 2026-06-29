@@ -203,7 +203,11 @@ void unit_test_yaml_epoch_precision()
     }
 
     LocalVelocityBuffer buf2;
-    buf2.fromYAML(buf.toYAML());
+    {
+        std::stringstream ss;
+        ss << buf.toYAML();
+        buf2.fromYAML(mrpt::containers::yaml::FromText(ss.str()));
+    }
 
     ASSERT_EQUAL_(buf2.get_linear_velocities().size(), stamps.size());
     for (const auto t : stamps)
