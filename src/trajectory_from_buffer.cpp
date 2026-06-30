@@ -142,33 +142,40 @@ Trajectory mola::imu::trajectory_from_buffer(
         }
     }
 
-    // and assign the closest IMU reading to t=0:
+    // and assign the closest IMU reading to t=0.
+    // Insufficient sensor data (e.g. during sensor warm-up or a transient data
+    // gap) is an expected runtime condition, not a programming error: return an
+    // empty trajectory so callers can gracefully skip integration for this scan.
     const auto closest_w_at_0 = mrpt::containers::find_closest(samples.by_type.w_b, 0.0);
     const auto closest_a_at_0 = mrpt::containers::find_closest(samples.by_type.a_b, 0.0);
-    ASSERTMSG_(
-        closest_w_at_0, "At least one entry with angular velocity is needed for IMU integration");
-    ASSERTMSG_(
-        closest_a_at_0,
-        "At least one entry with linear acceleration is needed for IMU integration");
+    if (!closest_w_at_0 || !closest_a_at_0)
+    {
+        return {};
+    }
     t[0].w_b = closest_w_at_0->second - bias_gyro;
     t[0].a_b = closest_a_at_0->second - bias_acc;
 
     // 3) Copy the latest gravity-aligned hints on global orientations:
-    ASSERTMSG_(
-        !samples.by_time.empty(),
-        "At least one IMU sample with timestamp is needed for IMU integration");
+    if (samples.by_time.empty())
+    {
+        return {};
+    }
     const double last_sample_rel_time = samples.by_time.rbegin()->first;
     const auto closest_q = mrpt::containers::find_closest(samples.by_type.q, last_sample_rel_time);
-    ASSERTMSG_(
-        closest_q,
-        "At least one entry with gravity-aligned orientation is needed for IMU integration");
+    if (!closest_q)
+    {
+        return {};
+    }
     const double stamp_first_R_ga = closest_q->first;
     t[closest_q->first].R_ga      = closest_q->second;
 
     // 3b) and copy the closest velocity from the given samples:
     const auto closest_v_b =
         mrpt::containers::find_closest(samples.by_type.v_b, last_sample_rel_time);
-    ASSERTMSG_(closest_v_b, "At least one entry with velocity is needed for IMU integration");
+    if (!closest_v_b)
+    {
+        return {};
+    }
     const double stamp_first_v_b = closest_v_b->first;
     t[closest_v_b->first].v      = closest_v_b->second;
 

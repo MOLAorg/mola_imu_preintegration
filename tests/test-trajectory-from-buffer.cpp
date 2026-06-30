@@ -361,6 +361,44 @@ void TrajectoryFromBuffer_Spinning3D()
     MRPT_END
 }
 
+// Test Case 6: Insufficient data is gracefully reported as an empty trajectory,
+// rather than throwing, so callers can skip integration for this scan.
+void TrajectoryFromBuffer_InsufficientData()
+{
+    MRPT_START
+
+    ImuIntegrationParams imu_params;
+    imu_params.gravity_vector = {0, 0, -9.81};
+
+    // Empty buffer: no anchors at all.
+    {
+        LocalVelocityBuffer buffer;
+        buffer.set_reference_zero_time(0.0);
+        auto       samples            = buffer.collect_samples_around_reference_time(10.0);
+        Trajectory reconstructed_traj = trajectory_from_buffer(samples, imu_params, false);
+        ASSERT_(reconstructed_traj.empty());
+    }
+
+    // Buffer with gyro+accel but no gravity-aligned orientation nor velocity:
+    {
+        LocalVelocityBuffer buffer;
+        buffer.set_reference_zero_time(0.0);
+        buffer.parameters.max_time_window = 20.0;
+        for (double time = 0.0; time <= 1.0; time += IMU_DT)
+        {
+            buffer.add_angular_velocity(time, {0, 0, 0});
+            buffer.add_linear_acceleration(time, {0, 0, 9.81});
+        }
+        auto       samples            = buffer.collect_samples_around_reference_time(10.0);
+        Trajectory reconstructed_traj = trajectory_from_buffer(samples, imu_params, false);
+        ASSERT_(reconstructed_traj.empty());
+    }
+
+    std::cout << "✅ TrajectoryFromBuffer_InsufficientData passed!" << std::endl;
+
+    MRPT_END
+}
+
 int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv)
 {
     try
@@ -370,6 +408,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv)
         TrajectoryFromBuffer_PerfectCircle();
         TrajectoryFromBuffer_ConstantLinearVelocityWithRoll();
         TrajectoryFromBuffer_Spinning3D();
+        TrajectoryFromBuffer_InsufficientData();
         return 0;
     }
     catch (const std::exception& e)

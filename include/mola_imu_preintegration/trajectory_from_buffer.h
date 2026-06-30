@@ -86,10 +86,17 @@ std::string trajectory_as_string(const Trajectory& traj);
  * it consists of integrating the IMU data using as anchor at least one global gravity-aligned
  * orientation and one linear velocity.
  *
+ * If the buffer lacks the minimum anchors required to integrate (at least one
+ * angular velocity, one linear acceleration, one gravity-aligned orientation and
+ * one linear velocity sample), an empty trajectory is returned. This is an
+ * expected runtime condition (e.g. sensor warm-up or a transient data gap), so
+ * callers should check for an empty result and skip integration accordingly.
+ *
  * @param samples IMU and other LIO data samples
  * @param imu_params IMU integration parameters, in particular, biases
  * @param use_higher_order Whether to use higher-order integration (jerk)
- * @return Trajectory With the reconstructed trajectory
+ * @return The reconstructed trajectory, or an empty trajectory if the input
+ *         buffer lacks the minimum anchors listed above.
  */
 Trajectory trajectory_from_buffer(
     const LocalVelocityBuffer::SampleHistory& samples, const ImuIntegrationParams& imu_params,
