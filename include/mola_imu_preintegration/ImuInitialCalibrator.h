@@ -89,7 +89,9 @@ class ImuInitialCalibrator
    private:
     std::map<std::string /*sensorLabel*/, ImuTransformer> imu_transformers_;
 
-    /// Samples here have been already transformed to be on the base_link frame:
+    /// Samples here have been already transformed to be on the base_link frame
+    /// (accel, gyro AND the absolute-orientation quaternion; placeholder identity
+    /// orientations from non-attitude IMUs are dropped on insertion):
     std::map<double, const mrpt::obs::CObservationIMU> samples_;
 };
 

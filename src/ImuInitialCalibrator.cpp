@@ -31,6 +31,8 @@
 #include <mrpt/poses/CPose3D.h>
 #include <mrpt/poses/SO_SE_average.h>
 
+#include <Eigen/Dense>  // required by MRPT matrix transpose()/operator* below
+#include <cmath>
 #include <exception>
 #include <sstream>
 
@@ -42,9 +44,63 @@ void ImuInitialCalibrator::add(const mrpt::obs::CObservationIMU::ConstPtr& obs)
     ASSERT_(parameters.required_samples > 2);
     ASSERT_(parameters.max_samples_age > 0);
 
-    // Add IMU reading, after rotating it so it is body frame-referenced:
-    samples_.emplace(
-        mrpt::Clock::toDouble(obs->timestamp), imu_transformers_[obs->sensorLabel].process(*obs));
+    // Rotate accel/gyro so they are body (base_link) frame-referenced:
+    mrpt::obs::CObservationIMU bodyImu = imu_transformers_[obs->sensorLabel].process(*obs);
+
+    // ImuTransformer only rotates accel/gyro; the absolute-orientation quaternion
+    // (if present) is left in the SENSOR frame. Bring it to the vehicle frame too,
+    // R_world_vehicle = R_world_sensor * R_vehicle_sensor^T, so the orientation-
+    // derived pitch/roll in getCalibration() describe the VEHICLE and not the
+    // (possibly rotated) sensor. Also DROP a PLACEHOLDER identity quaternion: some
+    // IMUs that do NOT estimate attitude (e.g. the Hesai built-in IMU) still ship
+    // a bit-exact identity quaternion tagged orientation_covariance[0]=0, which
+    // the ROS bridge forwards as "valid". It is not a real attitude, and through a
+    // rotated mount it would fabricate a bogus pitch/roll; dropped, the (already
+    // body-frame) accelerometer-gravity path does the leveling instead.
+    if (bodyImu.has(mrpt::obs::IMU_ORI_QUAT_W))
+    {
+        const auto qw = bodyImu.get(mrpt::obs::IMU_ORI_QUAT_W);
+        const auto qx = bodyImu.get(mrpt::obs::IMU_ORI_QUAT_X);
+        const auto qy = bodyImu.get(mrpt::obs::IMU_ORI_QUAT_Y);
+        const auto qz = bodyImu.get(mrpt::obs::IMU_ORI_QUAT_Z);
+
+        const bool isPlaceholderIdentity = std::abs(qx) < 1e-6 && std::abs(qy) < 1e-6 &&
+                                           std::abs(qz) < 1e-6 &&
+                                           std::abs(std::abs(qw) - 1.0) < 1e-6;
+        if (isPlaceholderIdentity)
+        {
+            bodyImu.dataIsPresent.at(mrpt::obs::IMU_ORI_QUAT_W) = false;
+            bodyImu.dataIsPresent.at(mrpt::obs::IMU_ORI_QUAT_X) = false;
+            bodyImu.dataIsPresent.at(mrpt::obs::IMU_ORI_QUAT_Y) = false;
+            bodyImu.dataIsPresent.at(mrpt::obs::IMU_ORI_QUAT_Z) = false;
+        }
+        else
+        {
+            // obs->sensorPose still holds R_vehicle_sensor (process() reset the
+            // sensor pose on the returned COPY only, not on the input obs):
+            const mrpt::math::CMatrixDouble33 R_world_sensor =
+                mrpt::poses::CPose3D::FromQuaternion(mrpt::math::CQuaternionDouble(qw, qx, qy, qz))
+                    .getRotationMatrix();
+            const mrpt::math::CMatrixDouble33 R_vehicle_sensor =
+                obs->sensorPose.getRotationMatrix();
+
+            mrpt::math::CMatrixDouble33 R_world_vehicle;
+            R_world_vehicle.asEigen() =
+                R_world_sensor.asEigen() * R_vehicle_sensor.asEigen().transpose();
+
+            mrpt::poses::CPose3D pv;
+            pv.setRotationMatrix(R_world_vehicle);
+            mrpt::math::CQuaternionDouble qv;
+            pv.getAsQuaternion(qv);
+            bodyImu.set(mrpt::obs::IMU_ORI_QUAT_W, qv.w());
+            bodyImu.set(mrpt::obs::IMU_ORI_QUAT_X, qv.x());
+            bodyImu.set(mrpt::obs::IMU_ORI_QUAT_Y, qv.y());
+            bodyImu.set(mrpt::obs::IMU_ORI_QUAT_Z, qv.z());
+        }
+    }
+
+    // Add IMU reading (now fully body frame-referenced, orientation included):
+    samples_.emplace(mrpt::Clock::toDouble(obs->timestamp), std::move(bodyImu));
 
     // Remove old samples:
     while (!samples_.empty() &&
