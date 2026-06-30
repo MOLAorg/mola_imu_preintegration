@@ -31,7 +31,9 @@ visual-inertial preintegrator** (no ΔV/ΔP, no covariance, no bias Jacobians ye
 - Quaternion YAML order is `[x,y,z,w]` (ROS/REP-103).
 - `cov_gyro`/`cov_acc` params exist but are **not yet consumed** by any algorithm.
 - `trajectory_from_buffer` uses the sample closest to the **latest** timestamp as the anchor and
-  integrates forward+backward; it assumes at least one orientation and one velocity sample exist.
+  integrates forward+backward; if the buffer lacks the minimum anchors (one orientation, one
+  velocity, one gyro and one accel sample) it returns an **empty trajectory** instead of throwing,
+  so callers skip integration for that scan.
 
 ## Build & test
 Standard MOLA/colcon build (see root MOLA repo). Tests are plain executables that return non-zero
@@ -42,6 +44,5 @@ clang-format-14 (`scripts/formatter.sh`); American spelling; no one-line `if`; o
 declaration; anonymous namespaces over `static`; avoid em dashes.
 
 ## Active improvement plan
-See `~/plans/800_imu.md` for the in-progress review (math gaps, latent crash in
-`trajectory_from_buffer` on empty IMU input, missing `ImuTransformer` tests, covariance/Jacobian
-TODOs). Keep that doc's checkboxes updated as work lands.
+See `~/plans/800_imu.md` for the in-progress review (math gaps, missing `ImuTransformer` tests,
+covariance/Jacobian TODOs). Keep that doc's checkboxes updated as work lands.
