@@ -26,6 +26,7 @@
 #include <mrpt/math/CQuaternion.h>
 #include <mrpt/math/TPoint3D.h>
 #include <mrpt/obs/CObservationIMU.h>
+#include <mrpt/poses/CPose3D.h>
 
 #include <cmath>
 #include <iostream>
@@ -106,10 +107,12 @@ inline void assert_near_impl(
 // Helper function to create an IMU observation
 mrpt::obs::CObservationIMU::Ptr create_imu_obs(
     double time_sec, const mrpt::math::TVector3D& acc, const mrpt::math::TVector3D& gyro,
-    const std::optional<mrpt::math::CQuaternionDouble>& orientation_quat = std::nullopt)
+    const std::optional<mrpt::math::CQuaternionDouble>& orientation_quat = std::nullopt,
+    const mrpt::poses::CPose3D& sensorPose = mrpt::poses::CPose3D::Identity())
 {
-    auto obs       = mrpt::obs::CObservationIMU::Create();
-    obs->timestamp = mrpt::Clock::fromDouble(time_sec);
+    auto obs        = mrpt::obs::CObservationIMU::Create();
+    obs->timestamp  = mrpt::Clock::fromDouble(time_sec);
+    obs->sensorPose = sensorPose;
 
     // Accelerations (IMU_X_ACC, IMU_Y_ACC, IMU_Z_ACC)
     obs->set(mrpt::obs::IMU_X_ACC, acc.x);
@@ -581,6 +584,87 @@ void TestImuInitialCalibrator()
         // std::cout << calib->asString();
 
         std::cout << "Test 9: 60 deg roll (gravity-based attitude) OK.\n";
+    }
+
+    // A genuinely tilted vehicle (pitch +20, roll -12) with the IMU mounted
+    // rotated ~90 deg wrt base_link (the Hesai "_90deg" case). In both sub-tests
+    // the recovered attitude must be the VEHICLE's, proving the sensor->vehicle
+    // extrinsics are applied to BOTH the accelerometer and the orientation
+    // quaternion.
+    const double tiltPitch  = mrpt::DEG2RAD(20.0);
+    const double tiltRoll   = mrpt::DEG2RAD(-12.0);
+    const auto   vehicleAtt = mrpt::poses::CPose3D::FromYawPitchRoll(0.0, tiltPitch, tiltRoll);
+    // Hesai-style mount: 90 deg yaw then 90 deg roll, plus a lever arm:
+    const auto mount = mrpt::poses::CPose3D::FromXYZYawPitchRoll(
+        0.1, -0.2, 0.3, mrpt::DEG2RAD(90.0), 0.0, mrpt::DEG2RAD(90.0));
+
+    // 10. Rotated mount + PLACEHOLDER identity orientation (what the Hesai IMU
+    //     ships). The identity quaternion is NOT a real attitude; it must be
+    //     dropped so the (mount-corrected) gravity recovers the vehicle tilt,
+    //     instead of fabricating a level (0,0) attitude.
+    {
+        ImuInitialCalibrator calibrator;  // use_imu_orientation defaults to true
+        calibrator.parameters.required_samples = 3;
+        calibrator.parameters.max_samples_age  = 100.0;
+        const double g                         = calibrator.parameters.gravity;
+
+        // Specific force the accelerometer reads, in the SENSOR frame:
+        const auto a_body   = vehicleAtt.inverseRotateVector({0.0, 0.0, g});
+        const auto a_sensor = mount.inverseRotateVector(a_body);
+
+        const mrpt::math::CQuaternionDouble placeholder(1.0, 0.0, 0.0, 0.0);  // identity
+
+        for (int i = 0; i < 5; ++i)
+        {
+            calibrator.add(create_imu_obs(
+                90.0 + static_cast<double>(i), a_sensor, {0.0, 0.0, 0.0}, placeholder, mount));
+        }
+
+        auto calib = calibrator.getCalibration();
+        ASSERT_(calib.has_value());
+
+        const double tol = 1e-5;
+        MRPT_ASSERT_NEAR_MSG_(
+            calib->pitch, tiltPitch, tol, "pitch (rotated mount, placeholder orientation)");
+        MRPT_ASSERT_NEAR_MSG_(
+            calib->roll, tiltRoll, tol, "roll (rotated mount, placeholder orientation)");
+
+        std::cout << "Test 10: rotated mount + placeholder identity orientation OK.\n";
+    }
+
+    // 11. Rotated mount + TRUE world-attitude quaternion. The orientation must be
+    //     brought to the vehicle frame (R_world_vehicle = R_world_sensor *
+    //     R_vehicle_sensor^T), recovering the VEHICLE tilt and NOT the rotated
+    //     sensor's ~90 deg attitude.
+    {
+        ImuInitialCalibrator calibrator;
+        calibrator.parameters.required_samples = 3;
+        calibrator.parameters.max_samples_age  = 100.0;
+        const double g                         = calibrator.parameters.gravity;
+
+        const auto a_body   = vehicleAtt.inverseRotateVector({0.0, 0.0, g});
+        const auto a_sensor = mount.inverseRotateVector(a_body);
+
+        // True sensor world attitude: R_world_sensor = R_world_vehicle * R_vehicle_sensor.
+        mrpt::math::CQuaternionDouble qWorldSensor;
+        (vehicleAtt + mount).getAsQuaternion(qWorldSensor);
+
+        for (int i = 0; i < 5; ++i)
+        {
+            calibrator.add(create_imu_obs(
+                110.0 + static_cast<double>(i), a_sensor, {0.0, 0.0, 0.0}, qWorldSensor, mount));
+        }
+
+        auto calib = calibrator.getCalibration();
+        ASSERT_(calib.has_value());
+
+        const double tol = 1e-5;
+        MRPT_ASSERT_NEAR_MSG_(
+            calib->pitch, tiltPitch, tol, "pitch (rotated mount, true world orientation)");
+        MRPT_ASSERT_NEAR_MSG_(
+            calib->roll, tiltRoll, tol, "roll (rotated mount, true world orientation)");
+
+        std::cout << "Test 11: rotated mount + true world orientation OK.\n";
     }
 
     std::cout << "--- TestImuInitialCalibrator finished OK ---\n";
