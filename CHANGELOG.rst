@@ -2,8 +2,8 @@
 Changelog for package mola_imu_preintegration
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Forthcoming
------------
+1.17.0 (2026-07-04)
+-------------------
 * Merge pull request `#9 <https://github.com/MOLAorg/mola_imu_preintegration/issues/9>`_ from MOLAorg/fix/trajectory-empty-on-insufficient-data
 * Merge pull request `#8 <https://github.com/MOLAorg/mola_imu_preintegration/issues/8>`_ from MOLAorg/fix/imu-initial-calibrator-rotated-mount-orientation
 * fix: apply IMU extrinsics to orientation in ImuInitialCalibrator
