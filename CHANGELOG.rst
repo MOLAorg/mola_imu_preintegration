@@ -2,6 +2,25 @@
 Changelog for package mola_imu_preintegration
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+Forthcoming
+-----------
+* Merge pull request `#9 <https://github.com/MOLAorg/mola_imu_preintegration/issues/9>`_ from MOLAorg/fix/trajectory-empty-on-insufficient-data
+* Merge pull request `#8 <https://github.com/MOLAorg/mola_imu_preintegration/issues/8>`_ from MOLAorg/fix/imu-initial-calibrator-rotated-mount-orientation
+* fix: apply IMU extrinsics to orientation in ImuInitialCalibrator
+* Merge pull request `#7 <https://github.com/MOLAorg/mola_imu_preintegration/issues/7>`_ from MOLAorg/improve/imu-review-fixes
+* ci: update and fix CI jobs
+* fix: prune relative to true latest timestamp, not just-inserted time
+* fix: clear() preserves parameters; documents what is reset
+* docs: add agents.md with key insights for the package
+* test: add unit tests for ImuTransformer
+* feat: lossless timestamp encoding in LocalVelocityBuffer YAML
+* refactor: remove unused tolerance_search_stamp parameter
+* docs: fix incorrect doxygen comments
+* fix: guard against empty IMU samples in trajectory_from_buffer
+* docs: add ROS 2 Lyrical badge row, update Rolling to Ubuntu 26.04 (resolute)
+* ci: fix Jazzy Jalisco EOL date in CI workflow comment (May 2024 - May 2029)
+* Contributors: Jose Luis Blanco-Claraco
+
 1.16.1 (2026-05-11)
 -------------------
 * Merge pull request `#6 <https://github.com/MOLAorg/mola_imu_preintegration/issues/6>`_ from MOLAorg/simplify-ci
