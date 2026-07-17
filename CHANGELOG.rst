@@ -2,6 +2,24 @@
 Changelog for package mola_imu_preintegration
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+Forthcoming
+-----------
+* Merge pull request `#10 <https://github.com/MOLAorg/mola_imu_preintegration/issues/10>`_ from MOLAorg/fix/imu-transformer-near-duplicate-timestamp-dt
+  fix: guard against near-zero dt in ImuTransformer angular-accel finite difference
+* style: clang-format fix
+* fix: guard against near-zero dt in ImuTransformer angular-accel finite difference
+  Some IMU drivers (e.g. the Hesai built-in IMU) emit consecutive messages with
+  near-duplicate timestamps a few microseconds apart. Dividing the finite-
+  difference angular-acceleration term by such a near-zero dt amplified an
+  otherwise negligible angular-velocity delta into a huge spurious lever-arm
+  correction, corrupting the transformed acceleration for that sample.
+  Reproduced end-to-end: ImuInitialCalibrator's pitch/roll came out ~33 deg off
+  on a dataset where the true tilt (per the bag's own static transforms) is
+  ~2 deg, with about a third of samples in the calibration window affected.
+  Widen the existing fallback-rate guard to treat any dt at or below 1 ms the
+  same as the dt<=0 case. Add a regression test.
+* Contributors: Jose Luis Blanco-Claraco
+
 1.17.0 (2026-07-04)
 -------------------
 * Merge pull request `#9 <https://github.com/MOLAorg/mola_imu_preintegration/issues/9>`_ from MOLAorg/fix/trajectory-empty-on-insufficient-data
