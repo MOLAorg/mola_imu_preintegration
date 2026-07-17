@@ -212,8 +212,7 @@ void test_near_duplicate_timestamp_no_spike()
     tf.process(*make_imu(100.0, acc, {0.0, 0.0, 0.0}, sensorPose));
     // A microsecond-scale gap with a tiny gyro change, as seen from near-duplicate
     // driver messages:
-    const auto out =
-        tf.process(*make_imu(100.0 + 5e-6, acc, {0.0, 0.0, 0.005}, sensorPose));
+    const auto out  = tf.process(*make_imu(100.0 + 5e-6, acc, {0.0, 0.0, 0.005}, sensorPose));
     const auto aout = get_acc(out);
 
     ASSERT_(std::isfinite(aout.x) && std::isfinite(aout.y) && std::isfinite(aout.z));
