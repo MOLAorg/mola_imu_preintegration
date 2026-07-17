@@ -34,6 +34,10 @@ visual-inertial preintegrator** (no ΔV/ΔP, no covariance, no bias Jacobians ye
   integrates forward+backward; if the buffer lacks the minimum anchors (one orientation, one
   velocity, one gyro and one accel sample) it returns an **empty trajectory** instead of throwing,
   so callers skip integration for that scan.
+- `ImuTransformer::process()` clamps `dt` to a default rate whenever it falls at or below
+  `MIN_SANE_DT` (1 ms), not just when `<= 0`. Some IMU drivers emit near-duplicate timestamps
+  (microseconds apart); dividing the finite-difference angular acceleration by such a near-zero
+  `dt` amplifies a negligible angular-velocity delta into a huge spurious lever-arm spike.
 
 ## Build & test
 Standard MOLA/colcon build (see root MOLA repo). Tests are plain executables that return non-zero

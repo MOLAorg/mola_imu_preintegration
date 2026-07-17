@@ -58,10 +58,18 @@ mrpt::obs::CObservationIMU ImuTransformer::process(const mrpt::obs::CObservation
         // amplified gyro noise that finite differencing introduces.
         const auto this_stamp = mrpt::Clock::toDouble(raw_imu.timestamp);
         double     dt         = this_stamp - last_stamp_;
-        if (dt <= 0 || dt > 1.0)
+
+        // Minimum sane dt: some IMU drivers emit near-duplicate timestamps
+        // (e.g. a pair of messages a few microseconds apart). Dividing by
+        // such a tiny dt amplifies an otherwise negligible angular-velocity
+        // difference into a huge spurious angular-acceleration spike, which
+        // then corrupts the lever-arm-corrected acceleration output.
+        constexpr double MIN_SANE_DT = 1e-3;
+
+        if (dt <= MIN_SANE_DT || dt > 1.0)
         {
-            // It's either the first reading, an error, or data flow stopped and resumed.
-            // Then use default rate:
+            // It's either the first reading, a near-duplicate timestamp, an
+            // error, or data flow stopped and resumed. Then use default rate:
             dt = 1.0 / 100.0;
         }
 
