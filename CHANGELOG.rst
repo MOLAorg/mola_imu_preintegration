@@ -2,8 +2,8 @@
 Changelog for package mola_imu_preintegration
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Forthcoming
------------
+1.17.1 (2026-07-17)
+-------------------
 * Merge pull request `#10 <https://github.com/MOLAorg/mola_imu_preintegration/issues/10>`_ from MOLAorg/fix/imu-transformer-near-duplicate-timestamp-dt
   fix: guard against near-zero dt in ImuTransformer angular-accel finite difference
 * style: clang-format fix
