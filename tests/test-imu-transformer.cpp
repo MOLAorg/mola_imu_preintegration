@@ -199,6 +199,28 @@ void test_dt_fallback()
     std::cout << "✅ test_dt_fallback passed!" << std::endl;
 }
 
+// 6) Near-duplicate timestamps (a few microseconds apart, as emitted by some
+//    IMU drivers) must not amplify a tiny angular-velocity difference into a
+//    huge spurious lever-arm spike via division by a near-zero dt.
+void test_near_duplicate_timestamp_no_spike()
+{
+    const auto sensorPose = mrpt::poses::CPose3D::FromTranslation(0.5, 0.0, 0.0);
+
+    ImuTransformer  tf;
+    const TVector3D acc = {0.0, 0.0, 9.81};
+
+    tf.process(*make_imu(100.0, acc, {0.0, 0.0, 0.0}, sensorPose));
+    // A microsecond-scale gap with a tiny gyro change, as seen from near-duplicate
+    // driver messages:
+    const auto out  = tf.process(*make_imu(100.0 + 5e-6, acc, {0.0, 0.0, 0.005}, sensorPose));
+    const auto aout = get_acc(out);
+
+    ASSERT_(std::isfinite(aout.x) && std::isfinite(aout.y) && std::isfinite(aout.z));
+    check_near(aout, acc, 0.5, "near-duplicate-timestamp accel (no spike)");
+
+    std::cout << "✅ test_near_duplicate_timestamp_no_spike passed!" << std::endl;
+}
+
 }  // namespace
 
 int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv)
@@ -210,6 +232,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv)
         test_tangential_lever_arm();
         test_first_sample_no_spike();
         test_dt_fallback();
+        test_near_duplicate_timestamp_no_spike();
         std::cout << "All ImuTransformer tests passed." << std::endl;
         return 0;
     }
