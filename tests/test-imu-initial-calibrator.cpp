@@ -30,6 +30,7 @@
 
 #include <cmath>
 #include <iostream>
+#include <limits>
 #include <sstream>
 #include <stdexcept>
 
@@ -706,6 +707,46 @@ void TestImuInitialCalibrator()
             calib->roll, tiltRoll, tol, "roll (rotated mount, all-zero orientation)");
 
         std::cout << "Test 12: rotated mount + all-zero orientation OK.\n";
+    }
+
+    // 13. Rotated mount + NaN quaternion (e.g. a sensor anomaly). NaN fails
+    //     every relational comparison, so a naive "> 0.1" degenerate check
+    //     would let it slip through as if it were a valid unit quaternion;
+    //     it must be dropped exactly like a placeholder identity, not crash.
+    {
+        ImuInitialCalibrator calibrator;
+        calibrator.parameters.required_samples = 3;
+        calibrator.parameters.max_samples_age  = 100.0;
+        const double g                         = calibrator.parameters.gravity;
+
+        const auto a_body   = vehicleAtt.inverseRotateVector({0.0, 0.0, g});
+        const auto a_sensor = mount.inverseRotateVector(a_body);
+
+        const double nan = std::numeric_limits<double>::quiet_NaN();
+
+        for (int i = 0; i < 5; ++i)
+        {
+            auto obs = create_imu_obs(
+                130.0 + static_cast<double>(i), a_sensor, {0.0, 0.0, 0.0}, std::nullopt, mount);
+            // Manually inject a NaN quaternion (dataIsPresent=true), which
+            // create_imu_obs() cannot do via CQuaternionDouble:
+            obs->set(mrpt::obs::IMU_ORI_QUAT_W, nan);
+            obs->set(mrpt::obs::IMU_ORI_QUAT_X, nan);
+            obs->set(mrpt::obs::IMU_ORI_QUAT_Y, nan);
+            obs->set(mrpt::obs::IMU_ORI_QUAT_Z, nan);
+
+            calibrator.add(obs);
+        }
+
+        auto calib = calibrator.getCalibration();
+        ASSERT_(calib.has_value());
+
+        const double tol = 1e-5;
+        MRPT_ASSERT_NEAR_MSG_(
+            calib->pitch, tiltPitch, tol, "pitch (rotated mount, NaN orientation)");
+        MRPT_ASSERT_NEAR_MSG_(calib->roll, tiltRoll, tol, "roll (rotated mount, NaN orientation)");
+
+        std::cout << "Test 13: rotated mount + NaN orientation OK.\n";
     }
 
     std::cout << "--- TestImuInitialCalibrator finished OK ---\n";

@@ -73,9 +73,13 @@ void ImuInitialCalibrator::add(const mrpt::obs::CObservationIMU::ConstPtr& obs)
         // zeros instead of a placeholder identity. That is not a rotation
         // (norm 0), and would otherwise abort below when handed to
         // CQuaternion; drop it the same way as a placeholder identity.
+        // The comparison is negated (rather than "> 0.1") so a NaN qNormSq
+        // (e.g. from a sensor anomaly) is also classified as degenerate:
+        // NaN fails every relational comparison, so "> 0.1" alone would let
+        // it slip through as if it were a valid unit quaternion.
         const double qNormSq =
             mrpt::square(qw) + mrpt::square(qx) + mrpt::square(qy) + mrpt::square(qz);
-        const bool isDegenerate = std::abs(qNormSq - 1.0) > 0.1;
+        const bool isDegenerate = !(std::abs(qNormSq - 1.0) <= 0.1);
 
         if (isPlaceholderIdentity || isDegenerate)
         {
