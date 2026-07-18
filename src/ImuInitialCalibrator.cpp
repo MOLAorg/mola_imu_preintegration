@@ -67,7 +67,17 @@ void ImuInitialCalibrator::add(const mrpt::obs::CObservationIMU::ConstPtr& obs)
         const bool isPlaceholderIdentity = std::abs(qx) < 1e-6 && std::abs(qy) < 1e-6 &&
                                            std::abs(qz) < 1e-6 &&
                                            std::abs(std::abs(qw) - 1.0) < 1e-6;
-        if (isPlaceholderIdentity)
+
+        // Some drivers that do not estimate attitude at all (e.g. a raw MEMS
+        // IMU with no onboard AHRS) leave the orientation quaternion at all
+        // zeros instead of a placeholder identity. That is not a rotation
+        // (norm 0), and would otherwise abort below when handed to
+        // CQuaternion; drop it the same way as a placeholder identity.
+        const double qNormSq =
+            mrpt::square(qw) + mrpt::square(qx) + mrpt::square(qy) + mrpt::square(qz);
+        const bool isDegenerate = std::abs(qNormSq - 1.0) > 0.1;
+
+        if (isPlaceholderIdentity || isDegenerate)
         {
             bodyImu.dataIsPresent.at(mrpt::obs::IMU_ORI_QUAT_W) = false;
             bodyImu.dataIsPresent.at(mrpt::obs::IMU_ORI_QUAT_X) = false;

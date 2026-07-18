@@ -667,6 +667,47 @@ void TestImuInitialCalibrator()
         std::cout << "Test 11: rotated mount + true world orientation OK.\n";
     }
 
+    // 12. Rotated mount + ALL-ZERO quaternion, as shipped by drivers (e.g. a
+    //     raw MEMS IMU with no onboard AHRS) that leave the orientation field
+    //     unset instead of a placeholder identity. mrpt::math::CQuaternion
+    //     itself refuses to hold a non-normalized (0,0,0,0) value, so the
+    //     zero components are poked in directly, bypassing that type. This
+    //     must be dropped exactly like a placeholder identity, not crash.
+    {
+        ImuInitialCalibrator calibrator;
+        calibrator.parameters.required_samples = 3;
+        calibrator.parameters.max_samples_age  = 100.0;
+        const double g                         = calibrator.parameters.gravity;
+
+        const auto a_body   = vehicleAtt.inverseRotateVector({0.0, 0.0, g});
+        const auto a_sensor = mount.inverseRotateVector(a_body);
+
+        for (int i = 0; i < 5; ++i)
+        {
+            auto obs = create_imu_obs(
+                120.0 + static_cast<double>(i), a_sensor, {0.0, 0.0, 0.0}, std::nullopt, mount);
+            // Manually inject an all-zero quaternion (dataIsPresent=true),
+            // which create_imu_obs() cannot do via CQuaternionDouble:
+            obs->set(mrpt::obs::IMU_ORI_QUAT_W, 0.0);
+            obs->set(mrpt::obs::IMU_ORI_QUAT_X, 0.0);
+            obs->set(mrpt::obs::IMU_ORI_QUAT_Y, 0.0);
+            obs->set(mrpt::obs::IMU_ORI_QUAT_Z, 0.0);
+
+            calibrator.add(obs);
+        }
+
+        auto calib = calibrator.getCalibration();
+        ASSERT_(calib.has_value());
+
+        const double tol = 1e-5;
+        MRPT_ASSERT_NEAR_MSG_(
+            calib->pitch, tiltPitch, tol, "pitch (rotated mount, all-zero orientation)");
+        MRPT_ASSERT_NEAR_MSG_(
+            calib->roll, tiltRoll, tol, "roll (rotated mount, all-zero orientation)");
+
+        std::cout << "Test 12: rotated mount + all-zero orientation OK.\n";
+    }
+
     std::cout << "--- TestImuInitialCalibrator finished OK ---\n";
 }
 
