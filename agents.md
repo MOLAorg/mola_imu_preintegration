@@ -39,6 +39,57 @@ visual-inertial preintegrator** (no ΔV/ΔP, no covariance, no bias Jacobians ye
   (microseconds apart); dividing the finite-difference angular acceleration by such a near-zero
   `dt` amplifies a negligible angular-velocity delta into a huge spurious lever-arm spike.
 
+## Full on-manifold preintegration + gravity-in-map estimation (2026-07)
+
+Three additions, all GTSAM-free (MRPT Lie algebra only):
+
+- `so3_jacobians.h` -- SO(3) right Jacobian `Jr` and its inverse, closed form
+  with Taylor branches below 1e-4 rad. NOTE: `Jr` is NOT
+  `mrpt::poses::Lie::SO<3>::jacob_dexpe_de()`, which returns the 9x3 Jacobian of
+  the flattened rotation MATRIX w.r.t. the tangent vector: a different object.
+- `ImuPreintegrator` -- real Forster preintegration: `dR`/`dV`/`dP`, the 9x9
+  covariance (`[theta,v,p]` order), and the five first-order bias Jacobians, so
+  a bias update needs no re-integration. `ImuIntegrator` stays as the cheap
+  ROTATION-ONLY path (its name and docstring still oversell it, see
+  `~/plans/800_imu.md`). Discretization is standard Euler-forward (reading held
+  over the FOLLOWING dt, rotation taken at the step start), chosen over a
+  midpoint rule because it keeps state, Jacobians and covariance mutually
+  consistent; error is first order in dt, far below sensor noise at real rates.
+  Inputs MUST already be body-frame (use `ImuTransformer`); an assertion
+  enforces `sensor_pose` is unset or identity.
+- `MapGravityEstimator` -- estimates the GRAVITY VECTOR IN THE MAP FRAME plus
+  both IMU biases, over a sliding window of intervals, from preintegrated IMU
+  aided by an external odometry's attitudes and velocities. Rearranging the
+  delta definition, `g = (v_j - v_i - R_i dV_ij)/dt`, makes every interval a
+  direct gravity measurement in which body acceleration CANCELS: unlike
+  averaging accelerometers, it stays valid while moving arbitrarily. Unknowns
+  are 9 scalars regardless of window length, so there are no attitude variables
+  and no gauge to pin. `correction()` is the yaw-free rotation that levels the
+  frame; `correction * R_odometry` is the gravity-consistent attitude.
+
+Load-bearing details, do not "simplify" them away:
+- The zero-anchored BIAS PRIORS and the |g| soft constraint are what keep the
+  problem conditioned. Accel bias is only separable from a tilt given ROTATION
+  EXCITATION; on a straight, level, constant-attitude run the two are
+  indistinguishable and the prior is all that bounds the answer.
+- The INTERVAL-COVERAGE GUARD (`min_interval_coverage`, default 0.95) rejects
+  an interval whose IMU samples do not span it. A partial delta attributed to a
+  whole interval corrupts the constraint SILENTLY; this exact bug cost a long
+  debugging session in `mola_mapper`.
+- Rejecting an interval is always safe here (the unknowns are global, so
+  nothing is left unconstrained), unlike a full-state formulation which needs
+  fallback priors.
+- `ImuIntegrationParams::cov_gyro`/`cov_acc` are continuous-time noise
+  DENSITIES (not per-sample covariances); consumers scale them by the sample
+  period. They default to `DEFAULT_GYRO_NOISE_DENSITY` / `DEFAULT_ACCEL_NOISE_DENSITY`
+  (1.7e-4 rad/s/sqrt(Hz), 2.0e-3 m/s^2/sqrt(Hz)), an industrial-grade MEMS
+  datasheet figure. They used to default to IDENTITY (sigma=1, ~1000x worse
+  than any real sensor), which made every "earned" sigma enormous and stopped
+  the estimator from ever reporting convergence. Field deployments commonly
+  inflate the datasheet density several-fold to absorb vibration.
+
+See `~/plans/801_lio_imu_preintegration_gravity.md` for the design and status.
+
 ## Build & test
 Standard MOLA/colcon build (see root MOLA repo). Tests are plain executables that return non-zero
 on failure and use MRPT `ASSERT_*` macros.
