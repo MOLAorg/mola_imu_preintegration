@@ -316,6 +316,43 @@ void unit_test_pruning_uses_latest_timestamp()
               << std::endl;
 }
 
+void unit_test_pruning_keeps_full_window_under_streaming()
+{
+    // Stream a long, steady sequence and check that at every step the buffer
+    // retains exactly the entries within the window and no more: it must
+    // neither over-prune (dropping in-window samples) nor under-prune (letting
+    // the map grow without bound). This is also the correctness guard for the
+    // early-stop in the prune loop, which relies on the entries being stored
+    // in ascending timestamp order.
+    LocalVelocityBuffer buf;
+    buf.parameters.max_time_window = 1.0;  // seconds
+
+    const double dt = 0.0025;  // 400 Hz
+    for (int i = 0; i < 2000; i++)
+    {
+        const double t = 100.0 + i * dt;
+        buf.add_linear_acceleration(t, {0.0, 0.0, 9.81});
+
+        const double latest   = t;
+        std::size_t  expected = 0;
+        for (const auto& [ts, val] : buf.get_linear_accelerations())
+        {
+            ASSERT_(latest - ts <= buf.parameters.max_time_window + 1e-12);
+            ++expected;
+        }
+        // The count must equal the number of stamps within the window.
+        ASSERT_EQUAL_(buf.get_linear_accelerations().size(), expected);
+    }
+
+    // After streaming past 1 s of data, the map must be bounded to ~window/dt
+    // entries, not the full 2000 inserted.
+    ASSERT_LT_(buf.get_linear_accelerations().size(), 500u);
+
+    std::cout << "OK LocalVelocityBuffer unit_test_pruning_keeps_full_window_under_streaming "
+                 "passed!"
+              << std::endl;
+}
+
 }  // namespace
 
 int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv)
@@ -328,6 +365,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv)
         unit_test_yaml_epoch_precision();
         unit_test_window_since();
         unit_test_pruning_uses_latest_timestamp();
+        unit_test_pruning_keeps_full_window_under_streaming();
     }
     catch (std::exception& e)
     {

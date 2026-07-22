@@ -90,6 +90,12 @@ void LocalVelocityBuffer::delete_too_old_entries()
 
     auto deleteOldEntries = [&](auto& map)
     {
+        // Entries are stored in ascending timestamp order, so all the too-old
+        // ones sit at the front. Erase from the front and STOP at the first
+        // entry still within the window: everything after it is newer and must
+        // be kept. Stopping (rather than scanning to the end) keeps this
+        // amortized O(deleted) instead of O(size) per call, which matters a
+        // lot for a long-retention buffer fed at hundreds of Hz.
         for (auto it = map.begin(); it != map.end();)
         {
             if (latest - it->first > max_time_window)
@@ -98,7 +104,7 @@ void LocalVelocityBuffer::delete_too_old_entries()
             }
             else
             {
-                ++it;
+                break;
             }
         }
     };
