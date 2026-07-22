@@ -316,6 +316,58 @@ void unit_test_pruning_uses_latest_timestamp()
               << std::endl;
 }
 
+void unit_test_pruning_keeps_full_window_under_streaming()
+{
+    // Stream a long, steady sequence and check that at every step the buffer
+    // retains exactly the entries within the window and no more: it must
+    // neither over-prune (dropping in-window samples) nor under-prune (letting
+    // the map grow without bound). This is also the correctness guard for the
+    // early-stop in the prune loop, which relies on the entries being stored
+    // in ascending timestamp order.
+    LocalVelocityBuffer buf;
+    buf.parameters.max_time_window = 1.0;  // seconds
+
+    const double     dt     = 0.0025;  // 400 Hz
+    const double     t0     = 100.0;
+    const double     window = buf.parameters.max_time_window;
+    constexpr double eps    = 1e-9;
+
+    for (int i = 0; i < 2000; i++)
+    {
+        const double t = t0 + i * dt;
+        buf.add_linear_acceleration(t, {0.0, 0.0, 9.81});
+
+        // Expected retained set, derived INDEPENDENTLY of the buffer from the
+        // known input stream: stamp k = t0 + k*dt survives iff
+        // t_i - t_k = (i-k)*dt <= window. Boundary entries (age == window) are
+        // kept, matching the eviction predicate (which evicts on strictly >).
+        int firstKept = 0;
+        while ((i - firstKept) * dt > window + eps)
+        {
+            ++firstKept;
+        }
+        const auto& accs = buf.get_linear_accelerations();
+
+        // Count vs. the independently-derived expectation: catches OVER-pruning
+        // (deleting valid entries would drop the count below this) as well as
+        // under-pruning (unbounded growth would push it above).
+        ASSERT_EQUAL_(accs.size(), static_cast<std::size_t>(i - firstKept + 1));
+
+        // Endpoints must be exactly right: oldest retained is t0+firstKept*dt,
+        // newest is the just-inserted t.
+        ASSERT_NEAR_(accs.begin()->first, t0 + firstKept * dt, 1e-9);
+        ASSERT_NEAR_(accs.rbegin()->first, t, 1e-9);
+    }
+
+    // After streaming past 1 s of data, the map must be bounded to ~window/dt
+    // entries, not the full 2000 inserted.
+    ASSERT_LT_(buf.get_linear_accelerations().size(), 500u);
+
+    std::cout << "OK LocalVelocityBuffer unit_test_pruning_keeps_full_window_under_streaming "
+                 "passed!"
+              << std::endl;
+}
+
 }  // namespace
 
 int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv)
@@ -328,6 +380,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv)
         unit_test_yaml_epoch_precision();
         unit_test_window_since();
         unit_test_pruning_uses_latest_timestamp();
+        unit_test_pruning_keeps_full_window_under_streaming();
     }
     catch (std::exception& e)
     {
