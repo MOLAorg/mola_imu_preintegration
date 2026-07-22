@@ -327,21 +327,36 @@ void unit_test_pruning_keeps_full_window_under_streaming()
     LocalVelocityBuffer buf;
     buf.parameters.max_time_window = 1.0;  // seconds
 
-    const double dt = 0.0025;  // 400 Hz
+    const double     dt     = 0.0025;  // 400 Hz
+    const double     t0     = 100.0;
+    const double     window = buf.parameters.max_time_window;
+    constexpr double eps    = 1e-9;
+
     for (int i = 0; i < 2000; i++)
     {
-        const double t = 100.0 + i * dt;
+        const double t = t0 + i * dt;
         buf.add_linear_acceleration(t, {0.0, 0.0, 9.81});
 
-        const double latest   = t;
-        std::size_t  expected = 0;
-        for (const auto& [ts, val] : buf.get_linear_accelerations())
+        // Expected retained set, derived INDEPENDENTLY of the buffer from the
+        // known input stream: stamp k = t0 + k*dt survives iff
+        // t_i - t_k = (i-k)*dt <= window. Boundary entries (age == window) are
+        // kept, matching the eviction predicate (which evicts on strictly >).
+        int firstKept = 0;
+        while ((i - firstKept) * dt > window + eps)
         {
-            ASSERT_(latest - ts <= buf.parameters.max_time_window + 1e-12);
-            ++expected;
+            ++firstKept;
         }
-        // The count must equal the number of stamps within the window.
-        ASSERT_EQUAL_(buf.get_linear_accelerations().size(), expected);
+        const auto& accs = buf.get_linear_accelerations();
+
+        // Count vs. the independently-derived expectation: catches OVER-pruning
+        // (deleting valid entries would drop the count below this) as well as
+        // under-pruning (unbounded growth would push it above).
+        ASSERT_EQUAL_(accs.size(), static_cast<std::size_t>(i - firstKept + 1));
+
+        // Endpoints must be exactly right: oldest retained is t0+firstKept*dt,
+        // newest is the just-inserted t.
+        ASSERT_NEAR_(accs.begin()->first, t0 + firstKept * dt, 1e-9);
+        ASSERT_NEAR_(accs.rbegin()->first, t, 1e-9);
     }
 
     // After streaming past 1 s of data, the map must be bounded to ~window/dt
