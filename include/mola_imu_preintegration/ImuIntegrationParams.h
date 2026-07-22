@@ -60,14 +60,43 @@ class ImuIntegrationParams
     /// Gyroscope (initial or constant) bias, in the local IMU frame of reference (units: rad/s).
     AngularVelocity bias_gyro = {.0, .0, .0};
 
-    /// Gyroscope covariance (units of sigma are rad/s/√Hz )
-    mrpt::math::CMatrixDouble33 cov_gyro = mrpt::math::CMatrixDouble33::Identity();
+    /// Default gyroscope noise density [rad/s/√Hz], representative of an
+    /// industrial-grade MEMS IMU (~0.01 deg/s/√Hz, e.g. ADIS16448 / Xsens MTi
+    /// class). \sa cov_gyro
+    constexpr static double DEFAULT_GYRO_NOISE_DENSITY = 1.7e-4;
+
+    /// Default accelerometer noise density [m/s²/√Hz], representative of an
+    /// industrial-grade MEMS IMU (~200 µg/√Hz). \sa cov_acc
+    constexpr static double DEFAULT_ACCEL_NOISE_DENSITY = 2.0e-3;
+
+    /// Builds the isotropic covariance matrix for a given noise density.
+    [[nodiscard]] static mrpt::math::CMatrixDouble33 isotropic_cov(double sigma)
+    {
+        mrpt::math::CMatrixDouble33 m;
+        m.setDiagonal(sigma * sigma);
+        return m;
+    }
+
+    /** Gyroscope covariance (units of sigma are rad/s/√Hz).
+     *
+     *  Defaults to DEFAULT_GYRO_NOISE_DENSITY squared, i.e. a typical MEMS
+     *  datasheet figure. Set the real value for your sensor: field deployments
+     *  commonly inflate the datasheet density several-fold to absorb vibration
+     *  and unmodeled dynamics.
+     *
+     *  \note This is a continuous-time noise DENSITY, not a per-sample
+     *        covariance: consumers scale it by the sample period.
+     */
+    mrpt::math::CMatrixDouble33 cov_gyro = isotropic_cov(DEFAULT_GYRO_NOISE_DENSITY);
 
     /// Accelerometer (initial or constant) bias, in the local IMU frame of reference (units: m/s²).
     LinearAcceleration bias_acc = {.0, .0, .0};
 
-    /// Accelerometer covariance (units of sigma are m/s²/√Hz )
-    mrpt::math::CMatrixDouble33 cov_acc = mrpt::math::CMatrixDouble33::Identity();
+    /** Accelerometer covariance (units of sigma are m/s²/√Hz).
+     *  Defaults to DEFAULT_ACCEL_NOISE_DENSITY squared. See cov_gyro for the
+     *  units convention and the caveat about inflating datasheet figures.
+     */
+    mrpt::math::CMatrixDouble33 cov_acc = isotropic_cov(DEFAULT_ACCEL_NOISE_DENSITY);
 
     /// Integration covariance: jerk, that is, how much acceleration can change over time:
     // mrpt::math::CMatrixDouble33 cov_integration = mrpt::math::CMatrixDouble33::Identity();

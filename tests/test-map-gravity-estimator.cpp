@@ -132,20 +132,6 @@ struct SyntheticWorld
     static Eigen::Vector3d toE(const TVector3D& v) { return {v.x, v.y, v.z}; }
 };
 
-/** Noise densities of a typical MEMS IMU (sigma units: rad/s/sqrt(Hz) and
- *  m/s^2/sqrt(Hz)). NOTE: ImuIntegrationParams defaults to IDENTITY
- *  covariances, i.e. sigma=1 for both, which is ~1000x worse than any real
- *  sensor; using that here would make every "earned" sigma so large that the
- *  estimator would rightly never report convergence.
- */
-ImuIntegrationParams realisticImuParams()
-{
-    ImuIntegrationParams p;
-    p.cov_gyro.setDiagonal(mrpt::square(3e-3));
-    p.cov_acc.setDiagonal(mrpt::square(3e-2));
-    return p;
-}
-
 /// Builds one interval of the given duration, preintegrating at `rate` Hz.
 MapGravityEstimator::Interval makeInterval(
     const SyntheticWorld& w, double t0, double t1, double rate,
@@ -227,7 +213,7 @@ void test_recovers_map_tilt_while_always_moving()
     w.map_tilt = {mrpt::DEG2RAD(2.5), mrpt::DEG2RAD(-1.8), 0.0};  // ~3.1 deg of tilt
 
     MapGravityEstimator est;
-    const auto          res = runSequence(est, w, realisticImuParams(), 20);
+    const auto          res = runSequence(est, w, ImuIntegrationParams(), 20);
 
     const double dirErrDeg = angleBetweenDeg(res.gravity_in_map, w.gravity_in_map());
 
@@ -260,7 +246,7 @@ void test_level_map_yields_no_correction()
     SyntheticWorld w;  // map_tilt = 0
 
     MapGravityEstimator est;
-    const auto          res = runSequence(est, w, realisticImuParams(), 20);
+    const auto          res = runSequence(est, w, ImuIntegrationParams(), 20);
 
     ASSERTMSG_(
         mrpt::RAD2DEG(res.tilt) < 0.05,
@@ -286,7 +272,7 @@ void test_gyro_bias_observability()
         MapGravityEstimator est;
         est.parameters.bias_gyro_prior_sigma = 1.0;  // effectively no prior
 
-        const auto   res = runSequence(est, w, realisticImuParams(), 20);
+        const auto   res = runSequence(est, w, ImuIntegrationParams(), 20);
         const double err = (res.bias_gyro - w.bias_gyro).norm();
 
         ASSERTMSG_(
@@ -304,7 +290,7 @@ void test_gyro_bias_observability()
     //     It must still recover most of the true bias, and must not overshoot.
     {
         MapGravityEstimator est;
-        const auto          res = runSequence(est, w, realisticImuParams(), 20);
+        const auto          res = runSequence(est, w, ImuIntegrationParams(), 20);
 
         const double trueNorm = w.bias_gyro.norm();
         const double recovered =
@@ -344,7 +330,7 @@ void test_accel_bias_observability_with_rotation_excitation()
         MapGravityEstimator est;
         est.parameters.bias_acc_prior_sigma = 10.0;  // effectively no prior
 
-        const auto   res = runSequence(est, w, realisticImuParams(), 30);
+        const auto   res = runSequence(est, w, ImuIntegrationParams(), 30);
         const double err = (res.bias_acc - w.bias_acc).norm();
 
         // The floor here is the first-order discretization error of the
@@ -370,7 +356,7 @@ void test_accel_bias_observability_with_rotation_excitation()
     //     the RIGHT WAY and stays bounded, and that the tilt is still right.
     {
         MapGravityEstimator est;
-        const auto          res = runSequence(est, w, realisticImuParams(), 30);
+        const auto          res = runSequence(est, w, ImuIntegrationParams(), 30);
 
         const double trueNorm  = w.bias_acc.norm();
         const double recovered = (res.bias_acc.x * w.bias_acc.x + res.bias_acc.y * w.bias_acc.y +
@@ -406,7 +392,7 @@ void test_no_rotation_excitation_degrades_gracefully()
     w.body_tilt = {0, 0, 0};  // and level body
 
     MapGravityEstimator est;
-    const auto          res = runSequence(est, w, realisticImuParams(), 20);
+    const auto          res = runSequence(est, w, ImuIntegrationParams(), 20);
 
     ASSERT_(std::isfinite(res.tilt));
     ASSERT_(std::isfinite(res.bias_acc.norm()));
@@ -430,14 +416,14 @@ void test_huber_rejects_corrupted_velocity()
 
     // Reference run, all intervals clean:
     MapGravityEstimator estClean;
-    const auto          clean = runSequence(estClean, w, realisticImuParams(), 20);
+    const auto          clean = runSequence(estClean, w, ImuIntegrationParams(), 20);
 
     // Same, but one interval has a grossly wrong odometry velocity:
     MapGravityEstimator est;
     for (int k = 0; k < 20; k++)
     {
         const double t0  = k * 0.5;
-        auto         itv = makeInterval(w, t0, t0 + 0.5, 200.0, realisticImuParams());
+        auto         itv = makeInterval(w, t0, t0 + 0.5, 200.0, ImuIntegrationParams());
         if (k == 10)
         {
             itv.v_to = itv.v_to + TVector3D{5.0, -4.0, 3.0};  // a badly wrong LO velocity
@@ -499,7 +485,7 @@ void test_coverage_guard_rejects_truncated_window()
 
     // An interval whose samples only cover the first half of it: exactly the
     // failure that silently corrupts a preintegrated constraint.
-    auto itv = makeInterval(w, 0.0, 0.5, 200.0, realisticImuParams());
+    auto itv = makeInterval(w, 0.0, 0.5, 200.0, ImuIntegrationParams());
     itv.t_to = itv.t_from + 1.0;  // claim twice the duration actually integrated
 
     ASSERT_(!est.add_interval(itv));
@@ -525,20 +511,20 @@ void test_input_guards()
     }
     // Non-positive duration:
     {
-        auto itv = makeInterval(w, 0.0, 0.5, 200.0, realisticImuParams());
+        auto itv = makeInterval(w, 0.0, 0.5, 200.0, ImuIntegrationParams());
         itv.t_to = itv.t_from;
         ASSERT_(!est.add_interval(itv));
     }
     // Non-finite velocity:
     {
-        auto itv   = makeInterval(w, 0.0, 0.5, 200.0, realisticImuParams());
+        auto itv   = makeInterval(w, 0.0, 0.5, 200.0, ImuIntegrationParams());
         itv.v_to.x = std::numeric_limits<double>::quiet_NaN();
         ASSERT_(!est.add_interval(itv));
     }
     // Out-of-order:
     {
-        ASSERT_(est.add_interval(makeInterval(w, 1.0, 1.5, 200.0, realisticImuParams())));
-        ASSERT_(!est.add_interval(makeInterval(w, 0.0, 0.5, 200.0, realisticImuParams())));
+        ASSERT_(est.add_interval(makeInterval(w, 1.0, 1.5, 200.0, ImuIntegrationParams())));
+        ASSERT_(!est.add_interval(makeInterval(w, 0.0, 0.5, 200.0, ImuIntegrationParams())));
     }
 
     // Solving with a single interval must not crash (it is simply weak):
@@ -559,7 +545,7 @@ void test_window_slides_and_resets()
     for (int k = 0; k < 12; k++)
     {
         const double t0 = k * 0.5;
-        ASSERT_(est.add_interval(makeInterval(w, t0, t0 + 0.5, 200.0, realisticImuParams())));
+        ASSERT_(est.add_interval(makeInterval(w, t0, t0 + 0.5, 200.0, ImuIntegrationParams())));
     }
     ASSERT_EQUAL_(est.window_length(), 5U);
 

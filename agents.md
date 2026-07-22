@@ -79,10 +79,14 @@ Load-bearing details, do not "simplify" them away:
 - Rejecting an interval is always safe here (the unknowns are global, so
   nothing is left unconstrained), unlike a full-state formulation which needs
   fallback priors.
-- `ImuIntegrationParams` defaults `cov_gyro`/`cov_acc` to IDENTITY, i.e.
-  sigma=1, ~1000x worse than any real MEMS IMU. Always set real noise
-  densities, or every "earned" sigma comes out enormous and the estimator
-  never reports convergence.
+- `ImuIntegrationParams::cov_gyro`/`cov_acc` are continuous-time noise
+  DENSITIES (not per-sample covariances); consumers scale them by the sample
+  period. They default to `DEFAULT_GYRO_NOISE_DENSITY` / `DEFAULT_ACCEL_NOISE_DENSITY`
+  (1.7e-4 rad/s/sqrt(Hz), 2.0e-3 m/s^2/sqrt(Hz)), an industrial-grade MEMS
+  datasheet figure. They used to default to IDENTITY (sigma=1, ~1000x worse
+  than any real sensor), which made every "earned" sigma enormous and stopped
+  the estimator from ever reporting convergence. Field deployments commonly
+  inflate the datasheet density several-fold to absorb vibration.
 
 See `~/plans/801_lio_imu_preintegration_gravity.md` for the design and status.
 
