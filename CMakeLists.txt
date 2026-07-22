@@ -25,20 +25,26 @@ find_package(mrpt-obs)
 # -----------------------
 # define lib:
 set(LIB_SRCS
+  src/MapGravityEstimator.cpp
   src/ImuInitialCalibrator.cpp
   src/ImuIntegrationParams.cpp
   src/ImuIntegrator.cpp
+  src/ImuPreintegrator.cpp
   src/ImuTransformer.cpp
   src/LocalVelocityBuffer.cpp
   src/register.cpp
+  src/so3_jacobians.cpp
   src/trajectory_from_buffer.cpp
 )
 set(LIB_PUBLIC_HDRS
+  include/mola_imu_preintegration/MapGravityEstimator.h
   include/mola_imu_preintegration/ImuInitialCalibrator.h
   include/mola_imu_preintegration/ImuIntegrationParams.h
   include/mola_imu_preintegration/ImuIntegrator.h
+  include/mola_imu_preintegration/ImuPreintegrator.h
   include/mola_imu_preintegration/ImuTransformer.h
   include/mola_imu_preintegration/LocalVelocityBuffer.h
+  include/mola_imu_preintegration/so3_jacobians.h
   include/mola_imu_preintegration/trajectory_from_buffer.h
 )
 

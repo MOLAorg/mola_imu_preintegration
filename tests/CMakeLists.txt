@@ -33,3 +33,24 @@ mola_add_test(
   LINK_LIBRARIES
     mola::mola_imu_preintegration
 )
+
+mola_add_test(
+  TARGET  test-so3-jacobians
+  SOURCES test-so3-jacobians.cpp
+  LINK_LIBRARIES
+    mola::mola_imu_preintegration
+)
+
+mola_add_test(
+  TARGET  test-imu-preintegrator
+  SOURCES test-imu-preintegrator.cpp
+  LINK_LIBRARIES
+    mola::mola_imu_preintegration
+)
+
+mola_add_test(
+  TARGET  test-map-gravity-estimator
+  SOURCES test-map-gravity-estimator.cpp
+  LINK_LIBRARIES
+    mola::mola_imu_preintegration
+)
