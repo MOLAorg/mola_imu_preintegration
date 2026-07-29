@@ -23,6 +23,7 @@
 
 #include <mola_imu_preintegration/ImuPreintegrator.h>
 #include <mrpt/containers/yaml.h>
+#include <mrpt/core/optional_ref.h>
 
 #include <cstddef>
 #include <deque>
@@ -77,6 +78,18 @@ namespace mola::imu
  *  therefore load-bearing, not decorative. Likewise, the gravity-magnitude
  *  soft constraint is what keeps the direction well conditioned when the
  *  velocity data is weak.
+ *
+ *  ### Quality is REPORTED, not gated
+ *
+ *  This class deliberately has no "the estimate is good enough" threshold.
+ *  `Result::converged` means only that the solve produced a usable estimate
+ *  (see its docs); how much to trust it is answered by the EARNED
+ *  `pitch_sigma` / `roll_sigma`, which the consumer should use as the weight
+ *  of whatever constraint it builds. An internal quality threshold would
+ *  merely hide informative-but-uncertain estimates behind a boolean, and a
+ *  threshold tight enough to look reassuring silently disables the estimator
+ *  on real MEMS hardware, where honest per-window tilt sigmas of several
+ *  degrees are normal under vehicle motion.
  *
  *  Thread-safety: none. Callers serialize access externally.
  *
@@ -135,12 +148,8 @@ class MapGravityEstimator
         double tolerance = 1e-10;
 
         /// Minimum number of intervals in the window before the result is
-        /// reported as converged.
+        /// reported as usable.
         std::size_t min_intervals_for_convergence = 4;
-
-        /// The result is not reported as converged while the estimated tilt
-        /// sigma exceeds this [degrees].
-        double max_tilt_sigma_deg = 3.0;
 
         void load_from(const mrpt::containers::yaml& cfg);
         void save_to(mrpt::containers::yaml& cfg) const;
@@ -195,7 +204,9 @@ class MapGravityEstimator
         /// The pitch/roll of `correction` [rad], i.e. how tilted the map has
         /// become, and their "earned" sigmas propagated from the solved
         /// information matrix. Consumers should weight the estimate with these
-        /// instead of a hand-tuned constant.
+        /// instead of a hand-tuned constant. Note that these are the ONLY
+        /// measure of quality: a large sigma is a weak estimate, not an
+        /// invalid one, and is not filtered out here (see the class docs).
         double pitch_correction = 0;
         double roll_correction  = 0;
         double pitch_sigma      = 0;
@@ -209,7 +220,16 @@ class MapGravityEstimator
 
         std::size_t num_intervals = 0;
         std::size_t iterations    = 0;
-        bool        converged     = false;
+
+        /// Norm of the last Gauss-Newton increment, for diagnostics: it tells
+        /// whether the iteration settled or ran out of iterations.
+        double increment_norm = 0;
+
+        /// True when the solve yielded a USABLE estimate: the window held at
+        /// least `min_intervals_for_convergence` intervals and the information
+        /// matrix could be inverted into finite sigmas. It is NOT a statement
+        /// about accuracy: that is `pitch_sigma` / `roll_sigma`.
+        bool converged = false;
     };
 
     /** Minimal rotation (no yaw) taking the "up" direction implied by a
@@ -218,6 +238,45 @@ class MapGravityEstimator
      *  Returns the identity for a degenerate (near-zero) input.
      */
     static SO3 correction_from_gravity(const mrpt::math::TVector3D& gravityInMap);
+
+    /** @name Residuals
+     *  The two residuals the solver minimizes, with their analytic Jacobians.
+     *  They are public so that the Jacobians can be checked against numerical
+     *  differentiation, and so that solver and tests share ONE definition of
+     *  the math instead of two that can drift apart.
+     *  All Jacobians are plain Euclidean derivatives (the unknowns are three
+     *  vectors in R^3), so numerical differentiation of these very functions
+     *  is a valid reference.
+     *  @{ */
+
+    /** Gravity residual of one interval: how much the odometry velocity change
+     *  disagrees with the preintegrated one under a candidate gravity vector,
+     *
+     *      r = (v_j - v_i) - g * dt_ij - R_i * dV_ij(b_a, b_g)
+     *
+     *  where `dV_ij` is bias-corrected to first order around the interval's
+     *  own linearization point. This is the residual that makes the gravity
+     *  DIRECTION observable under arbitrary motion.
+     */
+    static mrpt::math::TVector3D gravity_residual(
+        const Interval& interval, const mrpt::math::TVector3D& gravityInMap,
+        const LinearAcceleration& biasAcc, const AngularVelocity& biasGyro,
+        const mrpt::optional_ref<mrpt::math::CMatrixDouble33>& J_gravity   = std::nullopt,
+        const mrpt::optional_ref<mrpt::math::CMatrixDouble33>& J_bias_acc  = std::nullopt,
+        const mrpt::optional_ref<mrpt::math::CMatrixDouble33>& J_bias_gyro = std::nullopt);
+
+    /** Relative-rotation residual of one interval, comparing the preintegrated
+     *  rotation against the external odometry's relative rotation,
+     *
+     *      r = Log( dR_ij(b_g)^T * R_i^T * R_j )
+     *
+     *  This is what makes the gyroscope bias observable.
+     */
+    static mrpt::math::TVector3D rotation_residual(
+        const Interval& interval, const AngularVelocity& biasGyro,
+        const mrpt::optional_ref<mrpt::math::CMatrixDouble33>& J_bias_gyro = std::nullopt);
+
+    /** @} */
 
     /** Sets the center of the bias priors, e.g. from a calibration at rest
      *  (ImuInitialCalibrator). Defaults to zero.
@@ -276,3 +335,10 @@ class MapGravityEstimator
  *  preintegrated IMU measurements aided by external poses and velocities.
  */
 #define MOLA_IMU_PREINTEGRATION_HAS_MAP_GRAVITY_ESTIMATOR 1
+
+/** Feature macro: `Result::converged` reports USABILITY only. The former
+ *  `Parameters::max_tilt_sigma_deg` quality gate is gone: consumers judge the
+ *  estimate by the earned `pitch_sigma` / `roll_sigma` instead of receiving a
+ *  pre-filtered boolean.
+ */
+#define MOLA_IMU_PREINTEGRATION_MAP_GRAVITY_UNGATED_CONVERGENCE 1

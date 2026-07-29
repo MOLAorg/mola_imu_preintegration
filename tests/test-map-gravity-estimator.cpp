@@ -475,8 +475,147 @@ void test_survives_realistic_noise()
 }
 
 // -----------------------------------------------------------------------
+// Residual Jacobians.
+//
+// The two analytic Jacobians are the most error-prone code in the class, and
+// the recovery tests above would still pass with a merely APPROXIMATE one (a
+// wrong Jacobian costs iterations, not necessarily accuracy). So check them
+// against numerical differentiation of the very same residual functions the
+// solver calls.
+// -----------------------------------------------------------------------
+void checkJacobianColumn(
+    const char* what, int col, const TVector3D& numeric, const Eigen::Vector3d& analytic)
+{
+    const Eigen::Vector3d numE(numeric.x, numeric.y, numeric.z);
+    const double          err = (numE - analytic).norm();
+
+    ASSERTMSG_(
+        err < 1e-6, mrpt::format(
+                        "%s: analytic Jacobian column %i disagrees with numerical "
+                        "differentiation (err %g): analytic [%g %g %g] vs numeric [%g %g %g]",
+                        what, col, err, analytic.x(), analytic.y(), analytic.z(), numeric.x,
+                        numeric.y, numeric.z));
+}
+
+void test_residual_jacobians()
+{
+    SyntheticWorld w;
+    w.map_tilt  = {mrpt::DEG2RAD(2.0), mrpt::DEG2RAD(-1.5), 0};
+    w.bias_acc  = {0.03, -0.02, 0.04};
+    w.bias_gyro = {0.005, -0.004, 0.003};
+    w.yaw_rate  = 0.5;
+
+    const auto itv = makeInterval(w, 1.0, 1.5, 200.0, ImuIntegrationParams());
+
+    // Linearization point deliberately away from both the truth and the
+    // interval's own bias linearization point, so that every first-order bias
+    // term is actually exercised (they vanish at zero bias increment).
+    const TVector3D g{0.35, -0.22, -9.65};
+    const TVector3D ba{0.02, -0.03, 0.015};
+    const TVector3D bg{0.004, -0.006, 0.002};
+
+    constexpr double EPS = 1e-6;
+
+    // ---- (a) gravity residual ------------------------------------------
+    {
+        mrpt::math::CMatrixDouble33 Jg;
+        mrpt::math::CMatrixDouble33 Ja;
+        mrpt::math::CMatrixDouble33 Jb;
+        MapGravityEstimator::gravity_residual(itv, g, ba, bg, Jg, Ja, Jb);
+
+        for (int i = 0; i < 3; i++)
+        {
+            TVector3D d{0, 0, 0};
+            d[i] = EPS;
+
+            const auto rgP = MapGravityEstimator::gravity_residual(itv, g + d, ba, bg);
+            const auto rgM = MapGravityEstimator::gravity_residual(itv, g - d, ba, bg);
+            checkJacobianColumn(
+                "gravity residual d/d g", i, (rgP - rgM) * (1.0 / (2 * EPS)), Jg.asEigen().col(i));
+
+            const auto raP = MapGravityEstimator::gravity_residual(itv, g, ba + d, bg);
+            const auto raM = MapGravityEstimator::gravity_residual(itv, g, ba - d, bg);
+            checkJacobianColumn(
+                "gravity residual d/d b_a", i, (raP - raM) * (1.0 / (2 * EPS)),
+                Ja.asEigen().col(i));
+
+            const auto rbP = MapGravityEstimator::gravity_residual(itv, g, ba, bg + d);
+            const auto rbM = MapGravityEstimator::gravity_residual(itv, g, ba, bg - d);
+            checkJacobianColumn(
+                "gravity residual d/d b_g", i, (rbP - rbM) * (1.0 / (2 * EPS)),
+                Jb.asEigen().col(i));
+        }
+    }
+
+    // ---- (b) relative-rotation residual --------------------------------
+    {
+        mrpt::math::CMatrixDouble33 Jb;
+        MapGravityEstimator::rotation_residual(itv, bg, Jb);
+
+        for (int i = 0; i < 3; i++)
+        {
+            TVector3D d{0, 0, 0};
+            d[i] = EPS;
+
+            const auto rP = MapGravityEstimator::rotation_residual(itv, bg + d);
+            const auto rM = MapGravityEstimator::rotation_residual(itv, bg - d);
+            checkJacobianColumn(
+                "rotation residual d/d b_g", i, (rP - rM) * (1.0 / (2 * EPS)), Jb.asEigen().col(i));
+        }
+    }
+
+    std::cout << "test_residual_jacobians passed." << std::endl;
+}
+
+// -----------------------------------------------------------------------
 // Guards and bookkeeping.
 // -----------------------------------------------------------------------
+
+// A weak-but-usable estimate must be REPORTED with an honest large sigma, not
+// filtered out. This pins the contract that replaced the former
+// `max_tilt_sigma_deg` gate, whose default silently disabled the estimator on
+// real hardware, where per-window tilt sigmas of several degrees are normal.
+void test_weak_data_is_reported_not_gated()
+{
+    SyntheticWorld w;
+    w.map_tilt = {mrpt::DEG2RAD(2.0), mrpt::DEG2RAD(-1.5), 0};
+
+    MapGravityEstimator est;
+
+    // Only the minimum number of intervals, and an external odometry whose
+    // velocities are declared very uncertain:
+    for (int k = 0; k < 4; k++)
+    {
+        const double t0  = k * 0.5;
+        auto         itv = makeInterval(w, t0, t0 + 0.5, 200.0, ImuIntegrationParams());
+
+        itv.cov_v_from.setDiagonal(mrpt::square(2.0));  // 2 m/s
+        itv.cov_v_to.setDiagonal(mrpt::square(2.0));
+
+        ASSERT_(est.add_interval(itv));
+    }
+    ASSERT_(est.solve());
+    const auto res = *est.latest_result();
+
+    ASSERTMSG_(res.converged, "a usable, if weak, estimate must be reported as converged");
+
+    const double sigmaDeg = mrpt::RAD2DEG(std::max(res.pitch_sigma, res.roll_sigma));
+    ASSERTMSG_(
+        sigmaDeg > 3.0,
+        mrpt::format(
+            "expected an honestly large sigma from weak data, got %.3f deg; the test no longer "
+            "exercises the ungated path",
+            sigmaDeg));
+
+    // ... and the estimate itself is still good: this is exactly what a
+    // quality gate would have thrown away.
+    const double dirErrDeg = angleBetweenDeg(res.gravity_in_map, w.gravity_in_map());
+    ASSERT_LT_(dirErrDeg, 1.0);
+
+    std::cout << "test_weak_data_is_reported_not_gated passed (sigma " << sigmaDeg
+              << " deg, dir err " << dirErrDeg << " deg)." << std::endl;
+}
+
 void test_coverage_guard_rejects_truncated_window()
 {
     SyntheticWorld w;
@@ -601,6 +740,8 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv)
         test_no_rotation_excitation_degrades_gracefully();
         test_huber_rejects_corrupted_velocity();
         test_survives_realistic_noise();
+        test_residual_jacobians();
+        test_weak_data_is_reported_not_gated();
         test_coverage_guard_rejects_truncated_window();
         test_input_guards();
         test_window_slides_and_resets();

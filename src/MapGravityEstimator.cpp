@@ -26,6 +26,7 @@
 
 #include <Eigen/Dense>
 #include <cmath>
+#include <iostream>
 
 using namespace mola::imu;
 
@@ -73,7 +74,15 @@ void MapGravityEstimator::Parameters::load_from(const mrpt::containers::yaml& cf
     MCP_LOAD_OPT(cfg, max_iterations);
     MCP_LOAD_OPT(cfg, tolerance);
     MCP_LOAD_OPT(cfg, min_intervals_for_convergence);
-    MCP_LOAD_OPT(cfg, max_tilt_sigma_deg);
+
+    // Removed parameter: warn instead of ignoring it silently, since a config
+    // that still sets it expects a filtering behavior that no longer exists.
+    if (cfg.has("max_tilt_sigma_deg"))
+    {
+        std::cerr << "[MapGravityEstimator] WARNING: parameter 'max_tilt_sigma_deg' no longer "
+                     "exists and is being IGNORED. Quality is now reported through the earned "
+                     "pitch_sigma/roll_sigma of the result, not filtered out internally.\n";
+    }
 
     ASSERT_GT_(window_size, 0U);
     ASSERT_GT_(gravity_magnitude, 0.0);
@@ -102,7 +111,6 @@ void MapGravityEstimator::Parameters::save_to(mrpt::containers::yaml& cfg) const
     MCP_SAVE(cfg, max_iterations);
     MCP_SAVE(cfg, tolerance);
     MCP_SAVE(cfg, min_intervals_for_convergence);
-    MCP_SAVE(cfg, max_tilt_sigma_deg);
 }
 
 mrpt::math::CMatrixDouble33 MapGravityEstimator::Interval::defaultVelocityCov()
@@ -145,6 +153,80 @@ SO3 MapGravityEstimator::correction_from_gravity(const mrpt::math::TVector3D& gr
 
     const double angle = std::atan2(s, c);
     return so3_exp(fromEigen(Eigen::Vector3d(axis / s * angle)));
+}
+
+// ---------------------------------------------------------------------------
+// Residuals
+// ---------------------------------------------------------------------------
+mrpt::math::TVector3D MapGravityEstimator::gravity_residual(
+    const Interval& interval, const mrpt::math::TVector3D& gravityInMap,
+    const LinearAcceleration& biasAcc, const AngularVelocity& biasGyro,
+    const mrpt::optional_ref<mrpt::math::CMatrixDouble33>& J_gravity,
+    const mrpt::optional_ref<mrpt::math::CMatrixDouble33>& J_bias_acc,
+    const mrpt::optional_ref<mrpt::math::CMatrixDouble33>& J_bias_gyro)
+{
+    const auto& d = interval.delta;
+
+    const Eigen::Matrix3d Ri = interval.R_from.asEigen();
+    const double          dt = d.deltaTij;
+
+    // Bias increments with respect to the interval's own linearization point:
+    const Eigen::Vector3d dba = toEigen(biasAcc - d.bias_acc);
+    const Eigen::Vector3d dbg = toEigen(biasGyro - d.bias_gyro);
+
+    // First-order bias update of the preintegrated velocity delta:
+    const Eigen::Vector3d dV =
+        toEigen(d.deltaVij) + d.dV_dba.asEigen() * dba + d.dV_dbg.asEigen() * dbg;
+
+    const Eigen::Vector3d r =
+        toEigen(interval.v_to) - toEigen(interval.v_from) - toEigen(gravityInMap) * dt - Ri * dV;
+
+    if (J_gravity.has_value())
+    {
+        J_gravity->get().asEigen() = -Eigen::Matrix3d::Identity() * dt;
+    }
+    if (J_bias_acc.has_value())
+    {
+        J_bias_acc->get().asEigen() = -Ri * d.dV_dba.asEigen();
+    }
+    if (J_bias_gyro.has_value())
+    {
+        J_bias_gyro->get().asEigen() = -Ri * d.dV_dbg.asEigen();
+    }
+
+    return fromEigen(r);
+}
+
+mrpt::math::TVector3D MapGravityEstimator::rotation_residual(
+    const Interval& interval, const AngularVelocity& biasGyro,
+    const mrpt::optional_ref<mrpt::math::CMatrixDouble33>& J_bias_gyro)
+{
+    const auto& d = interval.delta;
+
+    const Eigen::Matrix3d Ri = interval.R_from.asEigen();
+    const Eigen::Matrix3d Rj = interval.R_to.asEigen();
+
+    const Eigen::Vector3d dbg = toEigen(biasGyro - d.bias_gyro);
+
+    // First-order bias update of the preintegrated rotation, on the manifold:
+    const Eigen::Vector3d       Jdbg   = d.dR_dbg.asEigen() * dbg;
+    const mrpt::math::TVector3D JdbgV  = fromEigen(Jdbg);
+    const Eigen::Matrix3d       dRcorr = d.deltaRij.asEigen() * so3_exp(JdbgV).asEigen();
+
+    SO3 M;
+    M.asEigen() = dRcorr.transpose() * Ri.transpose() * Rj;
+
+    const mrpt::math::TVector3D e = so3_log(M);
+
+    if (J_bias_gyro.has_value())
+    {
+        const Eigen::Matrix3d JrInv = inverse_right_jacobian_so3(e).asEigen();
+
+        J_bias_gyro->get().asEigen() = -JrInv * so3_exp(e * -1.0).asEigen() *
+                                       right_jacobian_so3(JdbgV).asEigen() * d.dR_dbg.asEigen();
+    }
+
+    return e;
 }
 
 void MapGravityEstimator::set_bias_prior(
@@ -280,6 +362,7 @@ bool MapGravityEstimator::solve()
 
     Eigen::Matrix<double, N, N> H              = Eigen::Matrix<double, N, N>::Zero();
     std::size_t                 iterationsDone = 0;
+    double                      incrementNorm  = 0;
 
     for (std::size_t iter = 0; iter < parameters.max_iterations; iter++)
     {
@@ -291,25 +374,20 @@ bool MapGravityEstimator::solve()
             const auto& d = itv.delta;
 
             const Eigen::Matrix3d Ri = itv.R_from.asEigen();
-            const Eigen::Matrix3d Rj = itv.R_to.asEigen();
-
-            const Eigen::Vector3d dbg = toEigen(bias_gyro_ - d.bias_gyro);
-            const Eigen::Vector3d dba = toEigen(bias_acc_ - d.bias_acc);
 
             // ---- (a) gravity residual ------------------------------------
             //   r = (v_j - v_i) - g*dt - R_i * dV_ij(b)
             {
-                const double dt = d.deltaTij;
-
-                const Eigen::Vector3d dV =
-                    toEigen(d.deltaVij) + d.dV_dba.asEigen() * dba + d.dV_dbg.asEigen() * dbg;
+                mrpt::math::CMatrixDouble33 Jg;
+                mrpt::math::CMatrixDouble33 JaM;
+                mrpt::math::CMatrixDouble33 JbM;
 
                 const Eigen::Vector3d r =
-                    toEigen(itv.v_to) - toEigen(itv.v_from) - toEigen(gravity_) * dt - Ri * dV;
+                    toEigen(gravity_residual(itv, gravity_, bias_acc_, bias_gyro_, Jg, JaM, JbM));
 
-                Eigen::Matrix3d Jg_ = -Eigen::Matrix3d::Identity() * dt;  // d/d gravity
-                Eigen::Matrix3d Ja  = -Ri * d.dV_dba.asEigen();
-                Eigen::Matrix3d Jb  = -Ri * d.dV_dbg.asEigen();
+                Eigen::Matrix3d Jg_ = Jg.asEigen();  // d/d gravity
+                Eigen::Matrix3d Ja  = JaM.asEigen();
+                Eigen::Matrix3d Jb  = JbM.asEigen();
 
                 // Weight = preintegration velocity covariance (rotated into
                 // the map frame) PLUS both external velocity covariances.
@@ -358,18 +436,11 @@ bool MapGravityEstimator::solve()
             // ---- (b) relative-rotation residual (gyro bias) --------------
             //   r = Log( dR_ij(b_g)^T * R_i^T * R_j )
             {
-                const Eigen::Vector3d       Jdbg  = d.dR_dbg.asEigen() * dbg;
-                const mrpt::math::TVector3D JdbgV = fromEigen(Jdbg);
-                const Eigen::Matrix3d dRcorr      = d.deltaRij.asEigen() * so3_exp(JdbgV).asEigen();
+                mrpt::math::CMatrixDouble33 JbM;
 
-                SO3 M;
-                M.asEigen() = dRcorr.transpose() * Ri.transpose() * Rj;
+                const mrpt::math::TVector3D e = rotation_residual(itv, bias_gyro_, JbM);
 
-                const mrpt::math::TVector3D e     = so3_log(M);
-                const Eigen::Matrix3d       JrInv = inverse_right_jacobian_so3(e).asEigen();
-
-                Eigen::Matrix3d Jb = -JrInv * so3_exp(e * -1.0).asEigen() *
-                                     right_jacobian_so3(JdbgV).asEigen() * d.dR_dbg.asEigen();
+                Eigen::Matrix3d Jb = JbM.asEigen();
 
                 // Weight: preintegrated rotation covariance PLUS the assumed
                 // uncertainty of the external odometry's relative rotation.
@@ -432,8 +503,9 @@ bool MapGravityEstimator::solve()
         bias_acc_  = bias_acc_ + fromEigen(dx.segment<3>(IDX_BA));
 
         iterationsDone = iter + 1;
+        incrementNorm  = dx.norm();
 
-        if (dx.norm() < parameters.tolerance)
+        if (incrementNorm < parameters.tolerance)
         {
             break;
         }
@@ -448,6 +520,7 @@ bool MapGravityEstimator::solve()
     res.bias_gyro      = bias_gyro_;
     res.num_intervals  = intervals_.size();
     res.iterations     = iterationsDone;
+    res.increment_norm = incrementNorm;
 
     std::tie(res.pitch_correction, res.roll_correction) = pitchRollOf(res.correction);
     res.tilt                                            = so3_log(res.correction).norm();
@@ -492,9 +565,12 @@ bool MapGravityEstimator::solve()
         }
     }
 
-    const double maxSigma = mrpt::DEG2RAD(parameters.max_tilt_sigma_deg);
-    res.converged = covOk && res.num_intervals >= parameters.min_intervals_for_convergence &&
-                    res.pitch_sigma < maxSigma && res.roll_sigma < maxSigma;
+    // "Converged" means USABLE: enough data, and finite earned sigmas. There
+    // is deliberately no accuracy threshold here; a large sigma is an honest
+    // weak estimate that the consumer can still weight correctly, and hiding
+    // it behind a boolean is what silently disables the estimator on real
+    // hardware.
+    res.converged = covOk && res.num_intervals >= parameters.min_intervals_for_convergence;
 
     latest_result_ = res;
     return true;

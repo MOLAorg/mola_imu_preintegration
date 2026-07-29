@@ -4,8 +4,9 @@ Minimal key insights for working in this repo. Keep this file short and in sync 
 
 ## What this package is
 A lightweight MOLA package (ROS 2, depends on MRPT 2.x) for IMU data manipulation, rough
-calibration, and gyro-based trajectory reconstruction for LiDAR deskew. **It is not a full
-visual-inertial preintegrator** (no ΔV/ΔP, no covariance, no bias Jacobians yet).
+calibration, gyro-based trajectory reconstruction for LiDAR deskew, and full on-manifold
+preintegration (ΔR/ΔV/ΔP, covariance, bias Jacobians) with a gravity-in-map estimator built on it.
+Everything is GTSAM-free: MRPT Lie algebra only.
 
 ## Layout
 - `include/mola_imu_preintegration/` — public headers (namespace `mola::imu`).
@@ -29,7 +30,8 @@ visual-inertial preintegrator** (no ΔV/ΔP, no covariance, no bias Jacobians ye
 - Frames: angular/linear quantities in body (`base_link`) frame; orientations are global,
   gravity-aligned. Gravity vector default `(0,0,-9.81)`; accel-at-rest reads `(0,0,+g)`.
 - Quaternion YAML order is `[x,y,z,w]` (ROS/REP-103).
-- `cov_gyro`/`cov_acc` params exist but are **not yet consumed** by any algorithm.
+- `cov_gyro`/`cov_acc` are consumed by `ImuPreintegrator` (covariance propagation) and hence by
+  `MapGravityEstimator`; `ImuIntegrator` still ignores them.
 - `trajectory_from_buffer` uses the sample closest to the **latest** timestamp as the anchor and
   integrates forward+backward; if the buffer lacks the minimum anchors (one orientation, one
   velocity, one gyro and one accel sample) it returns an **empty trajectory** instead of throwing,
@@ -68,6 +70,18 @@ Three additions, all GTSAM-free (MRPT Lie algebra only):
   frame; `correction * R_odometry` is the gravity-consistent attitude.
 
 Load-bearing details, do not "simplify" them away:
+- QUALITY IS REPORTED, NOT GATED. `Result::converged` means only "usable": enough intervals in the
+  window and an invertible information matrix. It says nothing about accuracy; that is the earned
+  `pitch_sigma`/`roll_sigma`, which the consumer must use as the weight of whatever constraint it
+  builds. A former `max_tilt_sigma_deg` parameter filtered results internally and its 3 deg default
+  silently disabled the estimator on real MEMS hardware, where honest per-window tilt sigmas of
+  several degrees are normal under vehicle motion; it was REMOVED (feature macro
+  `MOLA_IMU_PREINTEGRATION_MAP_GRAVITY_UNGATED_CONVERGENCE`), and `load_from()` warns if a stale
+  config still sets it. Do not reintroduce an internal quality threshold.
+- The two residuals live in the public static `gravity_residual()` / `rotation_residual()`, used by
+  BOTH the solver and `test-map-gravity-estimator`, so the analytic Jacobians are checked against
+  numerical differentiation of the very code that ships. The rotation-residual Jacobian in
+  particular is subtle enough that a wrong one still passes every end-to-end recovery test.
 - The zero-anchored BIAS PRIORS and the |g| soft constraint are what keep the
   problem conditioned. Accel bias is only separable from a tilt given ROTATION
   EXCITATION; on a straight, level, constant-attitude run the two are
