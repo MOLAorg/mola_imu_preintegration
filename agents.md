@@ -78,6 +78,14 @@ Load-bearing details, do not "simplify" them away:
   several degrees are normal under vehicle motion; it was REMOVED (feature macro
   `MOLA_IMU_PREINTEGRATION_MAP_GRAVITY_UNGATED_CONVERGENCE`), and `load_from()` warns if a stale
   config still sets it. Do not reintroduce an internal quality threshold.
+- A SHORT WINDOW is confidently wrong, not merely uncertain. Until enough intervals accumulate the
+  solution is pulled by the |g| soft constraint and the bias priors, and that pull is a BIAS the
+  linearized covariance cannot see, so the earned sigma understates the error: measured on Oxford
+  Spires, error/sigma runs ~3.6 over the first 100 s and settles at ~1.2 after ~130 intervals.
+  `min_intervals_for_convergence` is the knob for this, and it is a data-quantity precondition, not
+  the accuracy gate removed above. Do not try to fix this with an initial guess: Gauss-Newton
+  reaches the same minimum from any starting point (verified, including an upside-down one), so
+  seeding changes the iteration count and nothing else.
 - The two residuals live in the public static `gravity_residual()` / `rotation_residual()`, used by
   BOTH the solver and `test-map-gravity-estimator`, so the analytic Jacobians are checked against
   numerical differentiation of the very code that ships. The rotation-residual Jacobian in
