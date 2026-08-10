@@ -32,17 +32,42 @@
 #include <mrpt/poses/SO_SE_average.h>
 
 #include <Eigen/Dense>  // required by MRPT matrix transpose()/operator* below
+#include <algorithm>
 #include <cmath>
 #include <exception>
+#include <functional>
+#include <iterator>
 #include <sstream>
 
 using namespace mola::imu;
+
+double ImuInitialCalibrator::bufferHorizon() const
+{
+    if (parameters.window_seconds <= 0)
+    {
+        return parameters.max_samples_age;
+    }
+    // Comfortably more than the window: pruning exactly at the window would keep the buffer
+    // shorter than it, so "the window is complete" could only ever be true by an exact
+    // floating-point coincidence, and at low sample rates never at all. Only the newest
+    // `window_seconds` take part in the average, see windowBegin().
+    return 2.0 * parameters.window_seconds;
+}
+
+ImuInitialCalibrator::const_iterator ImuInitialCalibrator::windowBegin() const
+{
+    if (parameters.window_seconds <= 0 || samples_.empty())
+    {
+        return samples_.begin();
+    }
+    return samples_.lower_bound(samples_.rbegin()->first - parameters.window_seconds);
+}
 
 void ImuInitialCalibrator::add(const mrpt::obs::CObservationIMU::ConstPtr& obs)
 {
     ASSERT_(obs);
     ASSERT_(parameters.required_samples > 2);
-    ASSERT_(parameters.max_samples_age > 0);
+    ASSERT_(bufferHorizon() > 0);
 
     // Rotate accel/gyro so they are body (base_link) frame-referenced:
     mrpt::obs::CObservationIMU bodyImu = imu_transformers_[obs->sensorLabel].process(*obs);
@@ -114,21 +139,136 @@ void ImuInitialCalibrator::add(const mrpt::obs::CObservationIMU::ConstPtr& obs)
     }
 
     // Add IMU reading (now fully body frame-referenced, orientation included):
-    samples_.emplace(mrpt::Clock::toDouble(obs->timestamp), std::move(bodyImu));
+    const double t = mrpt::Clock::toDouble(obs->timestamp);
+    samples_.emplace(t, std::move(bodyImu));
+
+    if (!first_sample_time_.has_value())
+    {
+        first_sample_time_ = t;
+    }
 
     // Remove old samples:
-    while (!samples_.empty() &&
-           samples_.begin()->first < samples_.rbegin()->first - parameters.max_samples_age)
+    const double horizon = bufferHorizon();
+    while (!samples_.empty() && samples_.begin()->first < samples_.rbegin()->first - horizon)
     {
         samples_.erase(samples_.begin());
     }
 }
 
-bool ImuInitialCalibrator::isReady() const
+std::optional<double> ImuInitialCalibrator::directionDispersion() const
 {
-    // samples enough?
-    return (samples_.size() >= parameters.required_samples);
+    const auto itFirst = windowBegin();
+
+    // Mean direction of the accelerometer readings:
+    mrpt::math::TVector3D mean(0, 0, 0);
+    std::size_t           count = 0;
+
+    auto forEachDirection = [&](const std::function<void(const mrpt::math::TVector3D&)>& f)
+    {
+        for (auto it = itFirst; it != samples_.end(); ++it)
+        {
+            const auto& imu = it->second;
+            const auto  acc = mrpt::math::TVector3D(
+                 imu.get(mrpt::obs::IMU_X_ACC), imu.get(mrpt::obs::IMU_Y_ACC),
+                 imu.get(mrpt::obs::IMU_Z_ACC));
+            const double n = acc.norm();
+            if (n < 1e-6)
+            {
+                continue;
+            }
+            f(acc * (1.0 / n));
+        }
+    };
+
+    forEachDirection(
+        [&](const mrpt::math::TVector3D& u)
+        {
+            mean += u;
+            ++count;
+        });
+
+    if (count < 2)
+    {
+        return {};
+    }
+
+    const double meanNorm = mean.norm();
+    if (meanNorm < 1e-6)
+    {
+        return {};
+    }
+    mean *= 1.0 / meanNorm;
+
+    // RMS angle of each direction about the mean direction:
+    double sumSqAngle = 0;
+    forEachDirection(
+        [&](const mrpt::math::TVector3D& u)
+        {
+            const double c = std::clamp(u.x * mean.x + u.y * mean.y + u.z * mean.z, -1.0, 1.0);
+            sumSqAngle += mrpt::square(std::acos(c));
+        });
+
+    return std::sqrt(sumSqAngle / static_cast<double>(count));
 }
+
+ImuInitialCalibrator::Readiness ImuInitialCalibrator::readiness() const
+{
+    Readiness r;
+
+    const auto itFirst = windowBegin();
+    r.samples          = static_cast<std::size_t>(std::distance(itFirst, samples_.end()));
+
+    if (samples_.empty())
+    {
+        r.reason = "no IMU samples yet";
+        return r;
+    }
+
+    const double newest = samples_.rbegin()->first;
+
+    // Reported span is the one that will actually be averaged; the completeness test below uses
+    // the whole buffer instead. Samples inside the window are by construction no older than
+    // `window_seconds`, so their span can only reach it by exact floating-point coincidence.
+    r.span    = newest - itFirst->first;
+    r.elapsed = newest - first_sample_time_.value_or(itFirst->first);
+
+    // Minimum-sample sanity floor. It only rejects a degenerate handful of samples: what sets
+    // the averaging time is window_seconds, since the error is dominated by platform motion
+    // during the window and not by sensor noise.
+    if (r.samples < parameters.required_samples)
+    {
+        r.reason = "not enough samples yet";
+        return r;
+    }
+
+    if (parameters.window_seconds > 0 &&
+        (newest - samples_.begin()->first) < parameters.window_seconds)
+    {
+        r.reason = "averaging window not filled yet";
+        return r;
+    }
+
+    r.dispersion = directionDispersion();
+
+    if (parameters.max_direction_dispersion > 0 && r.dispersion.has_value() &&
+        *r.dispersion > parameters.max_direction_dispersion)
+    {
+        // The window is not measuring gravity: freezing it would bake platform motion into the
+        // attitude. Defer, unless we have been deferring for too long already, in which case a
+        // motion-contaminated estimate still beats never initializing.
+        if (parameters.dispersion_timeout <= 0 || r.elapsed < parameters.dispersion_timeout)
+        {
+            r.reason = "accelerometer dispersion too high (platform not still)";
+            return r;
+        }
+        r.timed_out = true;
+    }
+
+    r.ready = true;
+    return r;
+}
+
+bool ImuInitialCalibrator::isReady() const { return readiness().ready; }
 
 namespace
 {
@@ -149,31 +289,38 @@ std::optional<ImuInitialCalibrator::Results> ImuInitialCalibrator::getCalibratio
         return {};
     }
 
-    auto forEachAcc = [this](const std::function<void(const mrpt::math::TVector3D& acc)>& f)
+    // Only the samples inside the averaging window take part in the calibration: in time-window
+    // mode the buffer may hold slightly more than that.
+    const auto itFirst = windowBegin();
+
+    auto forEachAcc = [&](const std::function<void(const mrpt::math::TVector3D& acc)>& f)
     {
-        for (const auto& [_, imu] : samples_)
+        for (auto it = itFirst; it != samples_.end(); ++it)
         {
-            const auto accel_base_link = mrpt::math::TVector3D(
-                imu.get(mrpt::obs::IMU_X_ACC), imu.get(mrpt::obs::IMU_Y_ACC),
-                imu.get(mrpt::obs::IMU_Z_ACC));
+            const auto& imu             = it->second;
+            const auto  accel_base_link = mrpt::math::TVector3D(
+                 imu.get(mrpt::obs::IMU_X_ACC), imu.get(mrpt::obs::IMU_Y_ACC),
+                 imu.get(mrpt::obs::IMU_Z_ACC));
             f(accel_base_link);
         }
     };
 
-    auto forEachGyro = [this](const std::function<void(const mrpt::math::TVector3D& omega)>& f)
+    auto forEachGyro = [&](const std::function<void(const mrpt::math::TVector3D& omega)>& f)
     {
-        for (const auto& [_, imu] : samples_)
+        for (auto it = itFirst; it != samples_.end(); ++it)
         {
-            const auto ang_vel_base_link = mrpt::math::TVector3D(
-                imu.get(mrpt::obs::IMU_WX), imu.get(mrpt::obs::IMU_WY), imu.get(mrpt::obs::IMU_WZ));
+            const auto& imu               = it->second;
+            const auto  ang_vel_base_link = mrpt::math::TVector3D(
+                 imu.get(mrpt::obs::IMU_WX), imu.get(mrpt::obs::IMU_WY), imu.get(mrpt::obs::IMU_WZ));
             f(ang_vel_base_link);
         }
     };
 
-    auto forEachOrientation = [this](const std::function<void(const mrpt::poses::CPose3D&)>& f)
+    auto forEachOrientation = [&](const std::function<void(const mrpt::poses::CPose3D&)>& f)
     {
-        for (const auto& [_, imu] : samples_)
+        for (auto it = itFirst; it != samples_.end(); ++it)
         {
+            const auto& imu = it->second;
             if (!imu.has(mrpt::obs::IMU_ORI_QUAT_W))
             {
                 continue;
@@ -221,7 +368,7 @@ std::optional<ImuInitialCalibrator::Results> ImuInitialCalibrator::getCalibratio
         }
     }
 
-    const std::size_t count = samples_.size();
+    const auto count = static_cast<std::size_t>(std::distance(itFirst, samples_.end()));
 
     // Average:
     const auto n_1 = [count]() { return count ? 1.0 / static_cast<double>(count) : .0; }();
@@ -276,6 +423,9 @@ std::optional<ImuInitialCalibrator::Results> ImuInitialCalibrator::getCalibratio
     results.bias_acc_b = average_accel_body - estimated_gravity_body;
 
     // Gyroscope bias:
+    // WARNING: this is the plain mean of the gyro, which is only a bias if the platform was
+    // actually still during the window. On a moving start it is real rotation rate, so it must
+    // not be fed to a preintegrator without a staticness gate first.
     results.bias_gyro = average_gyro;
 
     return results;
