@@ -28,6 +28,7 @@
 #include <cstdlib>
 #include <map>
 #include <optional>
+#include <string>
 
 namespace mola::imu
 {
@@ -53,6 +54,38 @@ class ImuInitialCalibrator
          * accelerometer data. Should be normally preferable, so default is true.
          */
         bool use_imu_orientation = true;
+
+        /** Length of the averaging window, in **seconds** [s]. This is the knob that actually
+         * determines the accuracy of the estimated attitude, since the error is dominated by
+         * platform motion during the window and not by sensor noise. Being a duration, it is
+         * independent of the IMU rate: `required_samples` alone means a different averaging
+         * time on every sensor, and cannot even be satisfied by a low-rate IMU if it does not
+         * fit within `max_samples_age`.
+         *
+         * When >0, `required_samples` degrades to a minimum-sample sanity floor, the buffer is
+         * pruned to (slightly more than) this window instead of `max_samples_age`, and the
+         * calibration averages only the samples inside it.
+         *
+         * 0 (default) disables it and restores the legacy sample-count-only readiness rule.
+         */
+        double window_seconds = .0;
+
+        /** Maximum RMS angular dispersion [rad] of the buffered accelerometer directions for the
+         * window to be accepted as actually measuring gravity. A window taken while the platform
+         * is being jostled freezes a reading that is not gravity, so isReady() defers and the
+         * caller is expected to retry later with a fresher window.
+         *
+         * 0 (default) disables the gate.
+         */
+        double max_direction_dispersion = .0;
+
+        /** How long [s] the dispersion gate may defer readiness before it gives up and accepts
+         * the most recent window anyway. Measured from the first sample ever inserted, in sensor
+         * time. Without it, a platform that never becomes quiet would never initialize.
+         *
+         * 0 (default) means "no timeout", i.e. wait indefinitely for a quiet window.
+         */
+        double dispersion_timeout = .0;
     };
 
     Parameters parameters;
@@ -77,11 +110,37 @@ class ImuInitialCalibrator
         std::string asString() const;
     };
 
+    /// Detailed outcome of the readiness check, for logging and testing.
+    struct Readiness
+    {
+        Readiness() = default;
+
+        bool ready = false;  //!< Whether getCalibration() would return a value
+
+        std::size_t samples   = 0;  //!< Samples inside the averaging window
+        double      span      = 0;  //!< Time span of the averaging window [s]
+        double      elapsed   = 0;  //!< Time since the first sample ever inserted [s]
+        bool        timed_out = false;  //!< Accepted only because the gate timed out
+        std::string reason;  //!< Why it is not ready yet (empty if ready)
+
+        /// RMS angular dispersion of the accelerometer directions [rad], if computable
+        std::optional<double> dispersion;
+    };
+
     /// Inserts an IMU observation into the queue
     void add(const mrpt::obs::CObservationIMU::ConstPtr& obs);
 
     /// Returns true if there are already samples enough in the buffer to call getCalibration()
     [[nodiscard]] bool isReady() const;
+
+    /// Same as isReady(), plus the quantities the decision was made on
+    [[nodiscard]] Readiness readiness() const;
+
+    /// RMS angular spread [rad] of the buffered accelerometer directions about their mean,
+    /// over the averaging window. A quasi-static platform gives ~0; anything larger means the
+    /// accelerometer is measuring platform motion on top of gravity. Returns nothing if there
+    /// are fewer than 2 usable samples.
+    [[nodiscard]] std::optional<double> directionDispersion() const;
 
     /// If enough samples are given, it computes the initial rough IMU calibration
     [[nodiscard]] std::optional<Results> getCalibration() const;
@@ -93,9 +152,25 @@ class ImuInitialCalibrator
     /// (accel, gyro AND the absolute-orientation quaternion; placeholder identity
     /// orientations from non-attitude IMUs are dropped on insertion):
     std::map<double, const mrpt::obs::CObservationIMU> samples_;
+
+    /// Timestamp of the first sample ever inserted, to measure the gate timeout in sensor time
+    std::optional<double> first_sample_time_;
+
+    /// How far back samples are kept [s]. In time-window mode this is the window itself (plus a
+    /// small margin, so the buffer can actually span it), and `max_samples_age` is unused.
+    [[nodiscard]] double bufferHorizon() const;
+
+    using const_iterator = std::map<double, const mrpt::obs::CObservationIMU>::const_iterator;
+
+    /// First sample of the averaging window: in time-window mode, the oldest one no older than
+    /// `window_seconds`; otherwise the whole buffer.
+    [[nodiscard]] const_iterator windowBegin() const;
 };
 
 // Remove when all distros have the version with "use_imu_orientation"
 #define MOLA_IMU_PREINT_HAS_USE_IMU_ORIENT_PARAM
+
+// Remove when all distros have the version with the time window and dispersion gate
+#define MOLA_IMU_PREINT_HAS_INIT_TIME_WINDOW
 
 }  // namespace mola::imu
