@@ -908,7 +908,9 @@ void TestImuInitialCalibrator()
             const auto r = calibrator.readiness();
             ASSERT_(!r.ready);  // deferred: the window is not measuring gravity
             ASSERT_(!r.timed_out);
-            ASSERT_(r.span >= 1.0);
+            // span <= window_seconds by construction (windowBegin() is a lower_bound on
+            // newest - window_seconds), so this must be a tolerance, not an equality.
+            ASSERT_(r.span > 1.0 - 2 * dt);
             ASSERT_(r.samples >= 20);
 
             // Keep it dynamic past the timeout: it must initialize anyway.
