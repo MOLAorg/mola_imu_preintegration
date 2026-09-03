@@ -17,7 +17,8 @@ project(mola_imu_preintegration LANGUAGES CXX)
 find_package(mola_common REQUIRED)
 
 # find CMake dependencies:
-find_package(mrpt-obs)
+find_package(mrpt_obs)
+find_package(Eigen3 REQUIRED NO_MODULE)
 
 # Find MOLA packages:
 #find_mola_package(mola-kernel)
@@ -52,9 +53,11 @@ mola_add_library(
   TARGET ${PROJECT_NAME}
   SOURCES ${LIB_SRCS} ${LIB_PUBLIC_HDRS}
   PUBLIC_LINK_LIBRARIES
-    mrpt::containers
-    mrpt::poses
-    mrpt::obs
+    mrpt::mrpt_containers
+    mrpt::mrpt_poses
+    mrpt::mrpt_obs
+  PRIVATE_LINK_LIBRARIES
+    Eigen3::Eigen
   CMAKE_DEPENDENCIES
     mola_common
 )

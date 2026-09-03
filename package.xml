@@ -15,7 +15,8 @@
 
 
   <depend>mola_common</depend>
-  <depend>mrpt_libobs</depend>
+  <depend>mrpt_obs</depend>
+  <build_depend>eigen</build_depend>
 
   <doc_depend>doxygen</doc_depend>
 
