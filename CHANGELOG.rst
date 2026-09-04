@@ -2,8 +2,8 @@
 Changelog for package mola_imu_preintegration
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Forthcoming
------------
+2.0.0 (2026-09-05)
+------------------
 * Add on-manifold IMU preintegration (``ImuPreintegrator``) and sliding-window
   gravity-in-map estimation (``MapGravityEstimator``), with realistic default
   MEMS noise densities for ``ImuIntegrationParams`` (`#12
