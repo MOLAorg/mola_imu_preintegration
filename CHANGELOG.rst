@@ -2,6 +2,30 @@
 Changelog for package mola_imu_preintegration
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+2.0.0 (2026-09-05)
+------------------
+* Add on-manifold IMU preintegration (``ImuPreintegrator``) and sliding-window
+  gravity-in-map estimation (``MapGravityEstimator``), with realistic default
+  MEMS noise densities for ``ImuIntegrationParams`` (`#12
+  <https://github.com/MOLAorg/mola_imu_preintegration/issues/12>`_)
+* ``MapGravityEstimator``: report gravity-estimate accuracy via
+  pitch/roll sigma instead of gating convergence on a fixed threshold
+* Fix O(size) pruning scan in ``LocalVelocityBuffer``, making it amortized
+  O(deleted) so long-retention, high-rate buffers no longer stall the
+  consumer thread (`#13
+  <https://github.com/MOLAorg/mola_imu_preintegration/issues/13>`_)
+* ``ImuInitialCalibrator``: readiness is now based on a configurable time
+  window plus an optional accelerometer-direction dispersion gate, instead
+  of a plain sample count that made readiness rate-dependent; both are
+  opt-in and preserve prior behavior by default (`#14
+  <https://github.com/MOLAorg/mola_imu_preintegration/issues/14>`_)
+* Drop degenerate (all-zero or NaN) orientation quaternions in
+  ``ImuInitialCalibrator``, falling back to gravity-based accelerometer
+  leveling instead of aborting (`#11
+  <https://github.com/MOLAorg/mola_imu_preintegration/issues/11>`_)
+* fix lyrical badges
+* Contributors: Jose Luis Blanco-Claraco
+
 1.17.1 (2026-07-17)
 -------------------
 * Merge pull request `#10 <https://github.com/MOLAorg/mola_imu_preintegration/issues/10>`_ from MOLAorg/fix/imu-transformer-near-duplicate-timestamp-dt
