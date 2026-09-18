@@ -17,7 +17,9 @@ project(mola_imu_preintegration LANGUAGES CXX)
 find_package(mola_common REQUIRED)
 
 # find CMake dependencies:
-find_package(mrpt_obs)
+find_package(mrpt_containers REQUIRED)
+find_package(mrpt_poses REQUIRED)
+find_package(mrpt_obs REQUIRED)
 find_package(Eigen3 REQUIRED NO_MODULE)
 
 # Find MOLA packages:
