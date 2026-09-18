@@ -39,6 +39,7 @@ mola_add_test(
   SOURCES test-so3-jacobians.cpp
   LINK_LIBRARIES
     mola::mola_imu_preintegration
+    Eigen3::Eigen
 )
 
 mola_add_test(
@@ -46,6 +47,7 @@ mola_add_test(
   SOURCES test-imu-preintegrator.cpp
   LINK_LIBRARIES
     mola::mola_imu_preintegration
+    Eigen3::Eigen
 )
 
 mola_add_test(
@@ -53,4 +55,5 @@ mola_add_test(
   SOURCES test-map-gravity-estimator.cpp
   LINK_LIBRARIES
     mola::mola_imu_preintegration
+    Eigen3::Eigen
 )
