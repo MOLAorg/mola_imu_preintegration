@@ -2,8 +2,8 @@
 Changelog for package mola_imu_preintegration
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Forthcoming
------------
+3.0.0 (2026-09-23)
+------------------
 * Port to MRPT 3.x (underscored find_package/targets, explicit Eigen3 dependency)
 * Declare all directly-used MRPT packages in CMake and package.xml
 * Contributors: Jose Luis Blanco-Claraco
