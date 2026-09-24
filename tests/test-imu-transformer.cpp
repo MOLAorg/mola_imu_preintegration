@@ -181,22 +181,33 @@ void test_first_sample_no_spike()
     std::cout << "✅ test_first_sample_no_spike passed!" << std::endl;
 }
 
-// 5) Large/negative timestamp gaps fall back to the default rate without NaNs.
-void test_dt_fallback()
+// 5) A large timestamp gap (data flow stopped and resumed) restarts the filters:
+//    the angular-velocity change across the gap must not become a tangential spike.
+void test_dt_gap_restarts_filters()
 {
-    const auto sensorPose = mrpt::poses::CPose3D::FromTranslation(0.2, 0.0, 0.0);
+    const auto      sensorPose = mrpt::poses::CPose3D::FromTranslation(0.2, 0.0, 0.0);
+    const TVector3D t          = sensorPose.translation();
 
     ImuTransformer  tf;
     const TVector3D w   = {0.0, 0.0, 1.0};
     const TVector3D acc = {0.0, 0.0, 9.81};
 
-    tf.process(*make_imu(100.0, acc, w, sensorPose));
-    // Gap > 1 second (data flow resumed): must not throw nor produce NaN.
+    tf.process(*make_imu(100.0, acc, {0.0, 0.0, 0.0}, sensorPose));
+    // Gap > 1 second, with a different angular velocity afterwards:
     const auto out  = tf.process(*make_imu(150.0, acc, w, sensorPose));
     const auto aout = get_acc(out);
     ASSERT_(std::isfinite(aout.x) && std::isfinite(aout.y) && std::isfinite(aout.z));
 
-    std::cout << "✅ test_dt_fallback passed!" << std::endl;
+    // Only the centripetal term, with w bootstrapped to the current reading:
+    const TVector3D expected =
+        acc - mrpt::math::crossProduct3D(w, mrpt::math::crossProduct3D(w, t));
+    check_near(aout, expected, 1e-9, "accel after a timestamp gap");
+
+    // Time going backwards must behave the same way:
+    const auto out2 = tf.process(*make_imu(140.0, acc, w, sensorPose));
+    check_near(get_acc(out2), expected, 1e-9, "accel after a backwards timestamp");
+
+    std::cout << "✅ test_dt_gap_restarts_filters passed!" << std::endl;
 }
 
 // 6) Near-duplicate timestamps (a few microseconds apart, as emitted by some
@@ -221,6 +232,41 @@ void test_near_duplicate_timestamp_no_spike()
     std::cout << "✅ test_near_duplicate_timestamp_no_spike passed!" << std::endl;
 }
 
+// 7) High-rate IMUs (sample period well below 1 ms) must use their real dt in
+//    the finite difference, so the tangential term matches the true angular
+//    acceleration.
+void test_high_rate_tangential_lever_arm()
+{
+    const auto      sensorPose = mrpt::poses::CPose3D::FromTranslation(0.5, 0.0, 0.0);
+    const TVector3D t          = sensorPose.translation();
+
+    ImuTransformer tf;
+    tf.parameters.ang_acc_lpf_alpha = 1.0;
+    tf.parameters.ang_vel_lpf_alpha = 1.0;
+
+    const double    dt      = 1.0 / 2560.0;
+    const double    alpha_z = 4.0;  // rad/s^2
+    const TVector3D acc     = {0.0, 0.0, 9.81};
+
+    mrpt::obs::CObservationIMU out;
+    TVector3D                  w_last = {0, 0, 0};
+    for (int i = 0; i < 20; ++i)
+    {
+        w_last = {0.0, 0.0, alpha_z * (i * dt)};
+        out    = tf.process(*make_imu(100.0 + dt * i, acc, w_last, sensorPose));
+    }
+
+    const TVector3D alpha = {0.0, 0.0, alpha_z};
+    const TVector3D expected =
+        acc - mrpt::math::crossProduct3D(alpha, t) -
+        mrpt::math::crossProduct3D(w_last, mrpt::math::crossProduct3D(w_last, t));
+
+    // Tolerance covers the timestamp quantization of mrpt::Clock (100 ns ticks):
+    check_near(get_acc(out), expected, 1e-3, "high-rate tangential corrected accel");
+
+    std::cout << "✅ test_high_rate_tangential_lever_arm passed!" << std::endl;
+}
+
 }  // namespace
 
 int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv)
@@ -231,8 +277,9 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv)
         test_centripetal_lever_arm();
         test_tangential_lever_arm();
         test_first_sample_no_spike();
-        test_dt_fallback();
+        test_dt_gap_restarts_filters();
         test_near_duplicate_timestamp_no_spike();
+        test_high_rate_tangential_lever_arm();
         std::cout << "All ImuTransformer tests passed." << std::endl;
         return 0;
     }
