@@ -56,32 +56,33 @@ mrpt::obs::CObservationIMU ImuTransformer::process(const mrpt::obs::CObservation
         // Estimate angular acceleration via finite difference, then apply an
         // exponential moving average (EMA) low-pass filter to suppress the
         // amplified gyro noise that finite differencing introduces.
-        const auto this_stamp = mrpt::Clock::toDouble(raw_imu.timestamp);
-        double     dt         = this_stamp - last_stamp_;
+        const auto   this_stamp = mrpt::Clock::toDouble(raw_imu.timestamp);
+        const double dt         = this_stamp - last_stamp_;
 
-        // Minimum sane dt: some IMU drivers emit near-duplicate timestamps
-        // (e.g. a pair of messages a few microseconds apart). Dividing by
-        // such a tiny dt amplifies an otherwise negligible angular-velocity
-        // difference into a huge spurious angular-acceleration spike, which
-        // then corrupts the lever-arm-corrected acceleration output.
-        constexpr double MIN_SANE_DT = 1e-3;
+        // Sane range for the finite-difference step. The lower bound rejects
+        // near-duplicate timestamps (some IMU drivers emit pairs of messages a
+        // few microseconds apart), while accepting IMU rates up to 10 kHz.
+        constexpr double MIN_SANE_DT = 1e-4;
+        constexpr double MAX_SANE_DT = 1.0;
 
-        if (dt <= MIN_SANE_DT || dt > 1.0)
+        if (first_sample_ || dt < 0 || dt > MAX_SANE_DT)
         {
-            // It's either the first reading, a near-duplicate timestamp, an
-            // error, or data flow stopped and resumed. Then use default rate:
-            dt = 1.0 / 100.0;
+            // First reading, time going backwards, or data flow stopped and
+            // resumed: there is no usable previous sample, so a finite
+            // difference would produce a spurious spike. Restart the filter
+            // state from the current reading instead.
+            filtered_ang_acc_  = {0, 0, 0};
+            filtered_ang_vel_  = ang_vel_body;
+            first_sample_      = false;
+            last_ang_vel_body_ = ang_vel_body;
+            last_stamp_        = this_stamp;
         }
-
-        if (first_sample_)
+        else if (dt < MIN_SANE_DT)
         {
-            // On the very first call last_ang_vel_body_ is zero, so the raw
-            // finite difference would produce a large spurious spike equal to
-            // ang_vel_body / dt.  Bootstrap the filter state to zero instead
-            // and skip the lever-arm correction for this sample.
-            filtered_ang_acc_ = {0, 0, 0};
-            filtered_ang_vel_ = ang_vel_body;  // bootstrap to current reading; no prior exists
-            first_sample_     = false;
+            // Near-duplicate timestamp: dividing by such a tiny dt would turn a
+            // negligible angular-velocity change into a huge acceleration
+            // spike. Keep both the filter state and the reference sample, so
+            // the next difference spans a sane interval.
         }
         else
         {
@@ -98,12 +99,12 @@ mrpt::obs::CObservationIMU ImuTransformer::process(const mrpt::obs::CObservation
             // centripetal lever-arm term; the output channels stay unfiltered):
             const double alpha_vel = parameters.ang_vel_lpf_alpha;
             filtered_ang_vel_ = ang_vel_body * alpha_vel + filtered_ang_vel_ * (1.0 - alpha_vel);
+
+            last_ang_vel_body_ = ang_vel_body;
+            last_stamp_        = this_stamp;
         }
 
         ang_acc = filtered_ang_acc_;
-
-        last_ang_vel_body_ = ang_vel_body;
-        last_stamp_        = this_stamp;
     }
 
     // Transform acceleration:
