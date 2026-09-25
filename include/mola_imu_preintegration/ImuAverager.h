@@ -40,6 +40,10 @@ namespace mola::imu
  *  absolute, so it is taken from the newest reading. The output timestamp is
  *  the mean of the batch timestamps, which is where an average of a smoothly
  *  varying signal is best referred to.
+ *
+ *  If readings must also be moved to the vehicle frame with ImuTransformer, do
+ *  that first, on the raw stream: its lever-arm terms are not linear in the
+ *  angular velocity, and it differentiates consecutive raw readings.
  */
 class ImuAverager
 {
