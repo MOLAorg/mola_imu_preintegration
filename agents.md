@@ -19,6 +19,9 @@ Everything is GTSAM-free: MRPT Lie algebra only.
 - `ImuTransformer` — moves raw readings to `base_link`: rotates ω/accel and applies the rigid-body
   lever arm `a_body = R·a_imu − α×t − ω×(ω×t)`. Stateful (one instance per IMU); uses EMA low-pass
   filters for α (finite-diff) and the centripetal ω. Output `IMU_W*` channels stay full-bandwidth.
+- `ImuAverager` — decimates a high-rate stream to one reading per period, the **average** of the
+  period (ω and accel over finite readings; quaternion from the newest; stamp = batch mean). Keeping
+  one raw reading instead aliases motor/propeller vibration into whatever consumes it.
 - `ImuInitialCalibrator` — at-rest bias + pitch/roll from averaged gravity; prefers IMU orientation
   quaternion when present. Accel bias is only observable along gravity unless orientation is used.
   Readiness can be a **time window** (`window_seconds`, opt-in: the class default 0 keeps the legacy

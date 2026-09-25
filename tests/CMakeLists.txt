@@ -57,3 +57,10 @@ mola_add_test(
     mola::mola_imu_preintegration
     Eigen3::Eigen
 )
+
+mola_add_test(
+  TARGET  test-imu-averager
+  SOURCES test-imu-averager.cpp
+  LINK_LIBRARIES
+    mola::mola_imu_preintegration
+)

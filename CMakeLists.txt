@@ -29,6 +29,7 @@ find_package(Eigen3 REQUIRED NO_MODULE)
 # define lib:
 set(LIB_SRCS
   src/MapGravityEstimator.cpp
+  src/ImuAverager.cpp
   src/ImuInitialCalibrator.cpp
   src/ImuIntegrationParams.cpp
   src/ImuIntegrator.cpp
@@ -41,6 +42,7 @@ set(LIB_SRCS
 )
 set(LIB_PUBLIC_HDRS
   include/mola_imu_preintegration/MapGravityEstimator.h
+  include/mola_imu_preintegration/ImuAverager.h
   include/mola_imu_preintegration/ImuInitialCalibrator.h
   include/mola_imu_preintegration/ImuIntegrationParams.h
   include/mola_imu_preintegration/ImuIntegrator.h
