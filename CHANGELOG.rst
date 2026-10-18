@@ -2,6 +2,17 @@
 Changelog for package mola_imu_preintegration
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+Forthcoming
+-----------
+* Add ImuAverager: decimate a high-rate IMU stream by averaging each period (`#17 <https://github.com/MOLAorg/mola_imu_preintegration/issues/17>`_)
+* ImuTransformer: use the real dt for IMUs faster than 1 kHz (`#16 <https://github.com/MOLAorg/mola_imu_preintegration/issues/16>`_)
+* Test: tolerate timestamp rounding of older MRPT releases in the high-rate transformer test
+* ci: add GitHub release workflow on version tags
+* ci: make scripts/release.py identical across repos; set fail-fast: false in the matrix
+* Update CLA: define Project Owners, Spanish law, fix patent and employer clauses
+* Fix .gitignore: anchor build-* to directories only
+* Contributors: Jose Luis Blanco-Claraco
+
 3.0.0 (2026-09-23)
 ------------------
 * Port to MRPT 3.x (underscored find_package/targets, explicit Eigen3 dependency)
