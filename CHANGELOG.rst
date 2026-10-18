@@ -2,8 +2,8 @@
 Changelog for package mola_imu_preintegration
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Forthcoming
------------
+3.0.1 (2026-10-19)
+------------------
 * Add ImuAverager: decimate a high-rate IMU stream by averaging each period (`#17 <https://github.com/MOLAorg/mola_imu_preintegration/issues/17>`_)
 * ImuTransformer: use the real dt for IMUs faster than 1 kHz (`#16 <https://github.com/MOLAorg/mola_imu_preintegration/issues/16>`_)
 * Test: tolerate timestamp rounding of older MRPT releases in the high-rate transformer test
