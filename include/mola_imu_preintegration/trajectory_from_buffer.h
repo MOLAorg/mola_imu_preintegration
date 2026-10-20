@@ -66,7 +66,7 @@ struct TrajectoryPoint
     /// Angular acceleration (α)
     AngularAcceleration alpha_b = {0, 0, 0};
 
-    /// Jerk = \dot{a}
+    /// Jerk = \f$\dot{a}\f$
     mrpt::math::TVector3D j_b = {0, 0, 0};
 
     std::string asString() const;
