@@ -15,8 +15,12 @@ jobs:
           git submodule sync
           git submodule update --init --recursive
 
+      # clang-format-14 is no longer packaged for recent Ubuntu runners:
       - name: Install clang-format-14
-        run: sudo apt-get update && sudo apt-get install -y clang-format-14
+        run: |
+          pipx install clang-format==14.0.6
+          ln -sf "$(command -v clang-format)" "$(dirname "$(command -v clang-format)")/clang-format-14"
+          clang-format-14 --version
 
       - name: Check code style
         run: bash scripts/formatter.sh --check
