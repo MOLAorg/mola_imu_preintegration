@@ -85,6 +85,8 @@ void floor_eigenvalues(Mat33& P, double minVar)
 
 /// Larger backward jumps restart an IMU (e.g. a replayed dataset).
 constexpr double CLOCK_JUMP_BACK = 1.0;  // [s]
+/// Larger backward jumps of the hint stream are a clock jump, not a late source.
+constexpr double HINT_CLOCK_JUMP_BACK = 10.0;  // [s]
 /// Hints kept at most, should readings stop.
 constexpr std::size_t MAX_HINTS = 10000;
 
@@ -242,7 +244,7 @@ std::size_t ImuBiasTracker::add(const mrpt::obs::CObservationIMU& imu)
         // The clock went back: restart this IMU, keeping its estimate.
         s.input.clear();
         s.window.clear();
-        s.reacquire_start.reset();
+        s.reacquire.reset();
         s.est.stamp = smp.t;
         if (s.est.has_measurements())
         {
@@ -287,6 +289,7 @@ std::vector<std::string> ImuBiasTracker::flush()
             updated.push_back(label);
         }
     }
+    prune_hints();
     return updated;
 }
 
@@ -296,7 +299,6 @@ bool ImuBiasTracker::process_sample(PerImu& s, const Sample& smp)
     if (!w.samples.empty() && smp.t - w.samples.back().t > parameters.max_sample_gap)
     {
         w.clear();
-        s.reacquire_start.reset();
     }
     w.push(smp);
     if (w.samples.back().t - w.samples.front().t < parameters.standstill_window)
@@ -353,12 +355,7 @@ bool ImuBiasTracker::try_update(PerImu& s)
     const TimeStamp t0 = win.samples.front().t;
     const TimeStamp t1 = win.samples.back().t;
 
-    // Any rejection below, except the one by the offset gate, ends a re-acquisition:
-    const auto reject = [&s]()
-    {
-        s.reacquire_start.reset();
-        return false;
-    };
+    const auto reject = []() { return false; };
 
     const auto verdict = hints_verdict(t0, t1);
     if (verdict == HintVerdict::Moving || (p.require_static_hint && verdict != HintVerdict::Static))
@@ -407,45 +404,61 @@ bool ImuBiasTracker::try_update(PerImu& s)
 
     // Offset gate: a steady rotation, not a bias. The gate grows with the
     // uncertainty at this time.
-    auto& e = s.est;
+    auto&                 e   = s.est;
+    const double          age = std::max(0.0, e.stamp - t1);
+    const Eigen::Vector3d d   = wMean - toEigen(e.bias_gyro);
     {
         Estimate ePred = e;
         predict(ePred, t1);
-        const double sigma = std::sqrt(ePred.cov_gyro.asEigen().trace() + Rg.asEigen().trace());
+        const double sigma = std::sqrt(
+            ePred.cov_gyro.asEigen().trace() + Rg.asEigen().trace() +
+            3 * mrpt::square(p.bias_gyro_random_walk) * age);
         const double maxOffset =
             std::max(p.standstill_max_gyro_mean_offset, p.standstill_gyro_offset_sigmas * sigma);
-        if (!((wMean - toEigen(e.bias_gyro)).norm() <= maxOffset))
+        if (!(d.norm() <= maxOffset))
         {
-            if (verdict == HintVerdict::Static)
+            // Beyond what the prior allows for a bias: a rotation.
+            const double maxBias =
+                p.standstill_gyro_offset_sigmas *
+                std::sqrt(3 * mrpt::square(p.bias_gyro_prior_sigma) + Rg.asEigen().trace());
+            if (!(wMean.norm() <= maxBias))
             {
-                // The vehicle is still: the bias itself has changed.
-                e.cov_gyro = diag(p.bias_gyro_prior_sigma);
-            }
-            else if (
-                !s.reacquire_start ||
-                !((wMean - toEigen(s.reacquire_mean)).norm() <= p.standstill_max_gyro_mean_offset))
-            {
-                // Re-acquisition: consistent rejected windows for long enough mean
-                // the bias itself has changed.
-                s.reacquire_start = t0;
-                s.reacquire_mean  = fromEigen(wMean);
+                s.reacquire.reset();
                 return false;
             }
-            else if (t1 - *s.reacquire_start < p.gyro_reacquire_time)
+            // Re-acquisition: windows rejected by this gate that agree with each other
+            // for long enough (over any interruptions) mean that the bias itself has
+            // changed. Less time is needed if a "static" hint says the vehicle is still.
+            auto& r = s.reacquire;
+            if (!r || !((wMean - toEigen(r->mean)).norm() <= p.standstill_max_gyro_mean_offset))
+            {
+                r.emplace();
+                r->mean    = fromEigen(wMean);
+                r->time    = t1 - t0;
+                r->last_t1 = t1;
+                return false;
+            }
+            r->time += std::min(t1 - r->last_t1, t1 - t0);
+            r->last_t1 = t1;
+            const double needed =
+                verdict == HintVerdict::Static ? 2 * p.standstill_window : p.gyro_reacquire_time;
+            if (r->time < needed)
             {
                 return false;
             }
-            else
-            {
-                e.cov_gyro = diag(p.bias_gyro_prior_sigma);
-            }
+            e.cov_gyro = diag(p.bias_gyro_prior_sigma);
+        }
+        else if (d.norm() > p.standstill_gyro_offset_sigmas * sigma)
+        {
+            // Within the gate, but not with the estimate uncertainty: the bias moved
+            // more than its model says, so inflate it by the offset.
+            e.cov_gyro.asEigen() += d * d.transpose();
         }
     }
-    s.reacquire_start.reset();
+    s.reacquire.reset();
 
     // A standstill: update the estimate at the window end. A window older than the
     // estimate (after a newer external measurement) counts as less certain.
-    const double age = std::max(0.0, e.stamp - t1);
     predict(e, t1);
     for (int i = 0; i < 3; i++)
     {
@@ -475,8 +488,9 @@ std::vector<std::string> ImuBiasTracker::add_motion_hint(TimeStamp t, bool isSta
     {
         return updated;
     }
-    // The hint clock went back (e.g. a dataset restart): forget the newer ones.
-    if (!hints_.empty() && t < newest_hint_ - CLOCK_JUMP_BACK)
+    // The hint clock went back (e.g. a dataset restart): forget the newer ones. Far
+    // more than any source latency, so a late source does not erase the others.
+    if (!hints_.empty() && t < newest_hint_ - HINT_CLOCK_JUMP_BACK)
     {
         hints_.erase(hints_.upper_bound(t), hints_.end());
         newest_hint_ = hints_.empty() ? 0 : hints_.rbegin()->first;
@@ -581,7 +595,7 @@ std::optional<ImuBiasTracker::Estimate> ImuBiasTracker::estimate(
         return std::nullopt;
     }
     Estimate e = it->second.est;
-    if (t)
+    if (t && std::isfinite(*t))
     {
         predict(e, *t);
     }

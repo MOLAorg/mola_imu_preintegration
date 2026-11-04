@@ -225,7 +225,7 @@ void test_bias_changes_are_reacquired()
         ASSERT_GT_(feed(tr, imu, 15.0, standing), 0U);
         ASSERT_LT_(norm3(tr.estimate(imu.label)->bias_gyro - imu.bias_gyro), 1e-3);
     }
-    // With "static" hints, the step is accepted right away:
+    // With "static" hints, the step is accepted after two windows:
     {
         ImuBiasTracker tr;
         SimImu         imu;
@@ -234,7 +234,7 @@ void test_bias_changes_are_reacquired()
         imu.bias_gyro.z += 0.02;
         imu.t += 1.0;
         std::size_t n = 0;
-        for (int i = 0; i < 300; i++)
+        for (int i = 0; i < 500; i++)
         {
             const auto o = standing(imu);
             if (i % 10 == 0)
@@ -257,6 +257,130 @@ void test_bias_changes_are_reacquired()
         ASSERT_LT_(norm3(tr.estimate(imu.label)->bias_gyro - imu.bias_gyro), 1e-3);
     }
     std::cout << "bias changes: re-acquired after a while, at once with static hints\n";
+}
+
+// ---------------------------------------------------------------------------
+void test_reacquisition_robustness()
+{
+    // Stop and go: a bias step after an IMU restart is picked up over several
+    // 10 s stops, the re-acquisition time adding up across the drives.
+    {
+        ImuBiasTracker tr;
+        SimImu         imu;
+        feed(tr, imu, 10.0, standing);
+        imu.t += 2.0;  // the IMU restarts...
+        imu.bias_gyro.z += 0.02;  // ...with another bias
+        for (int cycle = 0; cycle < 6; cycle++)
+        {
+            feed(tr, imu, 30.0, driving);
+            feed(tr, imu, 10.0, standing);
+        }
+        ASSERT_LT_(norm3(tr.estimate(imu.label)->bias_gyro - imu.bias_gyro), 1e-3);
+    }
+    // Mid-size steps (within the absolute gate, beyond the estimate sigma) are
+    // followed within a few windows:
+    {
+        ImuBiasTracker tr;
+        SimImu         imu;
+        feed(tr, imu, 10.0, standing);
+        imu.bias_gyro.z += 0.008;
+        imu.t += 1.0;
+        feed(tr, imu, 4.0, standing);
+        ASSERT_LT_(norm3(tr.estimate(imu.label)->bias_gyro - imu.bias_gyro), 1e-3);
+    }
+    // Wrong "static" hints during a fast smooth turn: beyond any plausible bias,
+    // never taken as one.
+    {
+        ImuBiasTracker tr;
+        SimImu         imu;
+        tr.parameters.max_hint_latency = 0;
+        feed(tr, imu, 10.0, standing);
+        const auto before = *tr.estimate(imu.label);
+        for (int i = 0; i < 300; i++)
+        {
+            tr.add_motion_hint(imu.t, true);
+            tr.add(imu.sample(0.3));
+        }
+        const auto after = *tr.estimate(imu.label);
+        ASSERT_EQUAL_(after.standstill_updates, before.standstill_updates);
+    }
+    // The body settling on its suspension after a stop (a short pitch rate, with
+    // "static" wheel odometry hints): one window is not enough to reset the bias.
+    {
+        ImuBiasTracker tr;
+        SimImu         imu;
+        tr.parameters.max_hint_latency = 0;
+        feed(tr, imu, 10.0, standing);
+        imu.t += 1.0;
+        for (int i = 0; i < 115; i++)
+        {
+            tr.add_motion_hint(imu.t, true);
+            auto o = imu.sample(0);
+            o.set(mrpt::obs::IMU_WY, o.get(mrpt::obs::IMU_WY) + 0.015);
+            tr.add(o);
+        }
+        ASSERT_LT_(norm3(tr.estimate(imu.label)->bias_gyro - imu.bias_gyro), 1e-3);
+    }
+    std::cout << "re-acquisition: over interruptions, mid-size steps, bounded by the prior\n";
+}
+
+// ---------------------------------------------------------------------------
+void test_hint_sources_and_clock_jumps()
+{
+    // Two hint sources, one 1.5 s late: its stale hints do not erase the on-time
+    // "moving" ones during a smooth turn.
+    {
+        ImuBiasTracker tr;
+        SimImu         imu;
+        imu.gyro_noise = 0.001;
+        feed(tr, imu, 10.0, standing);
+        std::deque<std::pair<double, bool>> late;
+        std::size_t                         n = 0;
+        for (int i = 0; i < 1000; i++)
+        {
+            const bool turning = i >= 200;
+            const auto o       = imu.sample(turning ? 0.03 : 0.0);
+            if (i % 10 == 0)
+            {
+                n += tr.add_motion_hint(imu.t, !turning).size();
+                late.emplace_back(imu.t, !turning);
+            }
+            n += tr.add(o);
+            while (!late.empty() && imu.t - late.front().first >= 1.5)
+            {
+                n += tr.add_motion_hint(late.front().first, late.front().second).size();
+                late.pop_front();
+            }
+        }
+        const auto e = *tr.estimate(imu.label);
+        ASSERT_LT_(norm3(e.bias_gyro - imu.bias_gyro), 1e-3);
+    }
+    // A dataset replayed from its start: both clocks jump back by minutes, and
+    // the tracker keeps working with the new hints.
+    {
+        ImuBiasTracker tr;
+        SimImu         imu;
+        tr.parameters.require_static_hint = true;
+        tr.parameters.max_hint_latency    = 0;
+        auto run                          = [&](double seconds)
+        {
+            std::size_t n = 0;
+            for (int i = 0; i < static_cast<int>(seconds * RATE); i++)
+            {
+                const auto o = standing(imu);
+                if (i % 10 == 0)
+                {
+                    tr.add_motion_hint(imu.t, true);
+                }
+                n += tr.add(o);
+            }
+            return n;
+        };
+        ASSERT_GE_(run(5.0), 3U);
+        imu.t -= 300.0;
+        ASSERT_GE_(run(5.0), 3U);
+    }
+    std::cout << "hints: late sources and clock jumps\n";
 }
 
 // ---------------------------------------------------------------------------
@@ -724,6 +848,8 @@ int main()
         test_stop_and_go_tracks_drift();
         test_large_bias_accepted();
         test_bias_changes_are_reacquired();
+        test_reacquisition_robustness();
+        test_hint_sources_and_clock_jumps();
         test_slow_motion_and_late_hints();
         test_short_stops_at_random_phase();
         test_covariance_consistency();

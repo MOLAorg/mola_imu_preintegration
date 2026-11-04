@@ -36,11 +36,14 @@ Everything is GTSAM-free: MRPT Lie algebra only.
   running sums: gyro/accel RMS about their means, |accel| close to g, gyro mean within
   max(abs gate, k sigma) of the propagated estimate; at rest only the accel bias ALONG gravity is
   observable, relative to `gravity_magnitude`) and by external measurements (sensor frame; older
-  ones de-weighted by the random walk). Offsets beyond the gate under a "static" hint, or
-  consistent for `gyro_reacquire_time`, mean the bias changed: covariance reset to the prior.
+  ones de-weighted by the random walk). Offsets beyond the gate that agree with each other for
+  `gyro_reacquire_time` in total (2 windows if "static" hints touch them), and within what the
+  prior allows, mean the bias changed: covariance reset to the prior. Offsets within the gate but
+  beyond k sigma inflate the covariance.
   Smooth low-vibration motion (slow turns, wide curves) passes as standstill from the IMU alone:
   `add_motion_hint()` vetoes windows; hints are point events holding forward (hint both ends of
-  an increment); once any hint arrives readings wait for hints (up to `max_hint_latency`;
+  an increment; sources merged, a >10 s jump back is a clock jump); once any hint arrives readings
+  wait for hints (up to `max_hint_latency`;
   `flush()` at the end), so late LiDAR odometry hints still count. Eigenvalue floors on the
   posterior; covariance growth capped at the prior; garbage readings and stamps ignored.
 - `LocalVelocityBuffer` — time-keyed ring of v/a/ω/orientation; YAML (de)serialize; window queries.

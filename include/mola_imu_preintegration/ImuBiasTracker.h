@@ -104,16 +104,18 @@ class ImuBiasTracker
         /// [rad/s] and `standstill_gyro_offset_sigmas` times the sigma of that
         /// difference (estimate propagated to the window, plus the window's own).
         /// Rejects steady rotations once the estimate has converged, while a large
-        /// bias is still accepted at first. If a "static" motion hint covers the
-        /// window, the offset is taken as a change of the bias instead, and its
-        /// covariance is reset to the prior.
+        /// bias is still accepted at first. An offset within the gate but beyond the
+        /// estimate uncertainty inflates the covariance, so the estimate follows it.
         double standstill_max_gyro_mean_offset = 0.01;
         double standstill_gyro_offset_sigmas   = 3.0;
-        /// If windows rejected only by the gate above keep agreeing with each other
-        /// (within standstill_max_gyro_mean_offset) for this long, the bias is taken
-        /// to have changed (e.g. after a power cycle) and its covariance is reset to
-        /// the prior [s]. A smooth constant-rate rotation lasting this long, without
-        /// motion hints, would be taken as a bias change too.
+        /// Windows rejected by the gate above but agreeing with each other, for this
+        /// long in total [s] (over interruptions: stops, driving, gaps), mean that the
+        /// bias has changed (e.g. after a power cycle): its covariance is reset to
+        /// the prior. Twice `standstill_window` suffices if a "static" motion hint
+        /// touches them. Offsets beyond what the prior allows for a bias
+        /// (`standstill_gyro_offset_sigmas` prior sigmas) are always rotations.
+        /// A smooth constant-rate rotation within that bound, lasting this long
+        /// without motion hints, would be taken as a bias change too.
         double gyro_reacquire_time = 30.0;
         /// Maximum RMS deviation of the specific force from its window mean [m/s^2].
         double standstill_max_acc_rms = 0.3;
@@ -264,10 +266,15 @@ class ImuBiasTracker
         Window                   window;
         std::optional<TimeStamp> newest;  //!< newest accepted reading time
 
-        /// Re-acquisition of a changed bias: start and mean of the first window
-        /// rejected only by the offset gate.
-        std::optional<TimeStamp> reacquire_start;
-        mrpt::math::TVector3D    reacquire_mean{0, 0, 0};
+        /// Re-acquisition of a changed bias: mean of the first window rejected by
+        /// the offset gate, and the time covered by those agreeing with it.
+        struct Reacquire
+        {
+            mrpt::math::TVector3D mean{0, 0, 0};
+            double                time    = 0;  //!< [s]
+            TimeStamp             last_t1 = 0;
+        };
+        std::optional<Reacquire> reacquire;
     };
 
     enum class HintVerdict
