@@ -18,7 +18,6 @@
 #include <mrpt/math/CMatrixFixed.h>
 #include <mrpt/math/TPoint3D.h>
 #include <mrpt/obs/CObservationIMU.h>
-#include <mrpt/poses/CPose3D.h>
 
 #include <cstddef>
 #include <deque>
@@ -35,35 +34,46 @@ namespace mola::imu
  *  Two kinds of measurements update each estimate (a Kalman filter per IMU):
  *
  *  - **Standstill windows**, detected by the tracker itself from the raw readings:
- *    over a window of `standstill_window` seconds, the gyroscope and accelerometer
- *    readings stay close to their means (vibration and noise allowed), the mean
- *    angular velocity stays close to the current bias, and the mean specific force
- *    has the magnitude of gravity. The window mean of the gyroscope is then a
- *    measurement of its bias. For the accelerometer, only the component along
- *    gravity is observable without knowing the attitude, so it updates just that
- *    one: `|mean(a)| - g = u^T b_acc`, with `u` the measured gravity direction.
+ *    over a sliding window of `standstill_window` seconds, the gyroscope and
+ *    accelerometer readings stay close to their means (vibration and noise allowed),
+ *    the mean angular velocity is consistent with the current bias estimate and its
+ *    uncertainty, and the mean specific force has the magnitude of gravity. The
+ *    window mean of the gyroscope is then a measurement of its bias. For the
+ *    accelerometer, only the component along gravity is observable without knowing
+ *    the attitude, so it updates just that one: `|mean(a)| - g = u^T b_acc`, with
+ *    `u` the measured gravity direction (stops at different tilts make the rest
+ *    observable). That component is relative to `gravity`: an error in it, or in the
+ *    accelerometer scale, ends up in the bias. Accepted windows do not overlap.
  *    Unlike ImuInitialCalibrator, it keeps doing this at every stop, not only at
  *    startup.
- *  - **External measurements** (add_measurement()), e.g. the bias estimated by
- *    MapGravityEstimator while moving, with their covariance.
+ *  - **External measurements** (add_measurement()), with their covariance, in the
+ *    sensor frame. E.g. ImuInitialCalibrator results, or MapGravityEstimator biases
+ *    (rotate them from the vehicle to the sensor frame, and fuse only solves over
+ *    non-overlapping data, or they are counted more than once).
  *
  *  Between measurements, each covariance grows with the random-walk parameters, so
  *  an old estimate is reported as less certain.
  *
- *  ### Limitation of the standstill detector
+ *  ### Limitations of the standstill detector
  *
- *  From the IMU alone, a perfectly smooth slow rotation (slower than
- *  `standstill_max_gyro_mean_offset`, without vibration) cannot be told apart from
- *  a bias, and would be taken as one. On vehicles that can do that (e.g. a slow
- *  turn in place), feed motion hints from another source (wheel or LiDAR
- *  odometry) with add_motion_hint(): any hint saying "moving" inside a window
- *  vetoes it, and `require_static_hint` makes a "static" hint mandatory.
+ *  From the IMU alone, a smooth motion with a nearly constant angular velocity and
+ *  little vibration cannot be told apart from a standstill: a slow turn in place,
+ *  a wide curve at constant speed, slow pitching over undulating ground. Its
+ *  rotation would be taken as bias. Feed motion hints from another source (wheel
+ *  or LiDAR odometry) with add_motion_hint(): any hint saying "moving" during a
+ *  window vetoes it, and `require_static_hint` makes a "static" hint mandatory.
+ *  Once a hint is received, readings are processed only when the hints reach their
+ *  time (or `max_hint_latency` after it), so late hints still count.
+ *
+ *  The Earth rotation (up to 7.3e-5 rad/s) is part of the measured gyroscope bias.
  *
  *  ### Frames and units
  *
  *  Biases are in the IMU sensor frame, as raw readings and
  *  ImuIntegrationParams::bias_gyro / bias_acc: rad/s and m/s^2. Feed raw
  *  readings, not ImuTransformer outputs. Time stamps are seconds (TimeStamp).
+ *  IMUs slower than `standstill_min_samples / standstill_window` Hz never pass
+ *  the standstill test.
  *
  *  Thread-safety: none. Callers serialize access externally.
  *
@@ -80,7 +90,7 @@ class ImuBiasTracker
 
         /** @name Standstill detection
          * @{ */
-        /// Length of each (non-overlapping) standstill window [s].
+        /// Length of the sliding standstill window [s].
         double standstill_window = 1.0;
         /// Minimum readings in a window.
         std::size_t standstill_min_samples = 20;
@@ -89,34 +99,49 @@ class ImuBiasTracker
         /// Maximum RMS deviation of the angular velocity from its window mean
         /// [rad/s]: noise and vibration of a vehicle standing with its motors on.
         double standstill_max_gyro_rms = 0.02;
-        /// Maximum difference between the window mean angular velocity and the
-        /// current bias estimate [rad/s]: rejects steady rotations. Must be larger
-        /// than the expected bias error before the first standstill.
+        /// The window mean angular velocity is accepted as a bias measurement if
+        /// it differs from the current estimate by less than the largest of this
+        /// [rad/s] and `standstill_gyro_offset_sigmas` times the estimate sigma
+        /// (sqrt of the covariance trace). Rejects steady rotations once the
+        /// estimate has converged, while a large bias is still accepted at first.
         double standstill_max_gyro_mean_offset = 0.01;
+        double standstill_gyro_offset_sigmas   = 3.0;
         /// Maximum RMS deviation of the specific force from its window mean [m/s^2].
         double standstill_max_acc_rms = 0.3;
         /// Maximum difference between |mean specific force| and `gravity` [m/s^2].
         double standstill_max_acc_norm_error = 0.3;
         /// Gravity magnitude [m/s^2].
         double gravity = 9.81;
+        /** @} */
+
+        /** @name Motion hints
+         * @{ */
         /// If true, a window is only taken as standstill if a motion hint saying
-        /// "static" falls inside it (and none says "moving").
+        /// "static" covers part of it (and none says "moving").
         bool require_static_hint = false;
+        /// A hint holds until the next one, for at most this long [s].
+        double motion_hint_hold = 1.0;
+        /// Once hints are in use, a reading waits for a hint at or after its time,
+        /// at most this long after newer readings arrived [s].
+        double max_hint_latency = 0.5;
         /** @} */
 
         /** @name Bias model
          * @{ */
         /// Bias random walk [rad/s/sqrt(s)] and [m/s^2/sqrt(s)].
-        double gyro_bias_random_walk = 2e-5;
-        double acc_bias_random_walk  = 2e-4;
+        double bias_gyro_random_walk = 2e-5;
+        double bias_acc_random_walk  = 2e-4;
         /// Sigma of the zero-mean prior, before any measurement [rad/s] and [m/s^2].
-        double gyro_bias_prior_sigma = 0.02;
-        double acc_bias_prior_sigma  = 0.3;
-        /// Floors of the standstill measurement sigmas [rad/s] and [m/s^2], for
-        /// what the sample statistics cannot see (temperature, vibration
-        /// rectification, a not quite still vehicle).
-        double gyro_measurement_min_sigma = 2e-4;
-        double acc_measurement_min_sigma  = 0.02;
+        double bias_gyro_prior_sigma = 0.02;
+        double bias_acc_prior_sigma  = 0.3;
+        /// Floors of each standstill window measurement sigma [rad/s] and [m/s^2].
+        double standstill_gyro_min_sigma = 2e-4;
+        double standstill_acc_min_sigma  = 0.02;
+        /// Floors of the estimate sigmas, per axis [rad/s] and [m/s^2]: errors that
+        /// do not average out over many windows (temperature, vibration
+        /// rectification, gravity and scale errors).
+        double bias_gyro_min_sigma = 1e-4;
+        double bias_acc_min_sigma  = 0.01;
         /** @} */
 
         void load_from(const mrpt::containers::yaml& cfg);
@@ -135,7 +160,7 @@ class ImuBiasTracker
         mrpt::math::CMatrixDouble33 cov_gyro;  //!< [(rad/s)^2]
         mrpt::math::CMatrixDouble33 cov_acc;  //!< [(m/s^2)^2]
 
-        /// Time of the covariances above: the newest measurement, or the query time.
+        /// Time of the covariances above.
         TimeStamp stamp = 0;
         /// Time of the newest measurement (0: none yet, the prior).
         TimeStamp last_update = 0;
@@ -150,19 +175,25 @@ class ImuBiasTracker
     };
 
     /** Feeds one raw reading (sensor frame) of the IMU named by its sensorLabel.
-     *  Readings must be in time order per IMU. Readings without angular velocity
-     *  are ignored.
-     *  \return true if it closed a standstill window that updated the estimate.
+     *  Readings must be in time order per IMU: duplicated or slightly older stamps
+     *  are dropped, and a jump back in time of more than 1 s (e.g. a dataset
+     *  restart) restarts that IMU, keeping its bias estimate. Readings without
+     *  angular velocity, or with non-finite values, are ignored (only the
+     *  accelerometer part, if just that one is non-finite).
+     *  \return true if the estimate of that IMU was updated.
      */
     bool add(const mrpt::obs::CObservationIMU& imu);
 
     /** Tells whether the vehicle (all its IMUs) is static at time `t`, from another
-     *  source. Hints are kept for a short time (a few windows).
+     *  source. Each hint holds until the next one (at most `motion_hint_hold`).
+     *  \return the labels of the IMUs whose estimate was updated, as readings
+     *          waiting for this hint are processed.
      */
-    void add_motion_hint(TimeStamp t, bool isStatic);
+    std::vector<std::string> add_motion_hint(TimeStamp t, bool isStatic);
 
-    /** Fuses an external bias measurement of one IMU, e.g. from MapGravityEstimator.
-     *  Either part may be omitted.
+    /** Fuses an external bias measurement of one IMU (sensor frame), with its
+     *  covariance. Either part may be omitted. A measurement older than the
+     *  estimate is fused with its covariance grown by the random walk since then.
      */
     void add_measurement(
         const std::string& sensorLabel, TimeStamp t,
@@ -170,8 +201,8 @@ class ImuBiasTracker
         const std::optional<std::pair<LinearAcceleration, mrpt::math::CMatrixDouble33>>& acc);
 
     /** The current estimate of one IMU, or nothing if that label was never seen.
-     *  If `t` is given (and newer than the last update), the covariances are
-     *  propagated to that time.
+     *  Covariances are propagated to `t` if given (and newer than the estimate),
+     *  else to the newest reading of that IMU.
      */
     [[nodiscard]] std::optional<Estimate> estimate(
         const std::string& sensorLabel, const std::optional<TimeStamp>& t = std::nullopt) const;
@@ -190,21 +221,47 @@ class ImuBiasTracker
         std::optional<mrpt::math::TVector3D> a;
     };
 
+    /// A window of readings with running sums, so each new one costs O(1).
+    struct Window
+    {
+        std::deque<Sample>          samples;
+        mrpt::math::TVector3D       sum_w{0, 0, 0};
+        mrpt::math::TVector3D       sum_ww{0, 0, 0};  //!< per axis squares
+        std::size_t                 na = 0;  //!< samples with accelerometer
+        mrpt::math::TVector3D       sum_a{0, 0, 0};
+        mrpt::math::CMatrixDouble33 sum_aa;  //!< sum of a * a^T
+
+        void push(const Sample& s);
+        void pop();
+        void clear() { *this = Window(); }
+    };
+
     struct PerImu
     {
         Estimate           est;
-        std::deque<Sample> window;
+        std::deque<Sample> input;  //!< readings waiting for motion hints
+        Window             window;
+        TimeStamp          newest = 0;  //!< newest accepted reading time
     };
 
     std::map<std::string, PerImu> imus_;
     std::map<TimeStamp, bool>     hints_;
+    bool                          hints_used_  = false;
+    TimeStamp                     newest_hint_ = 0;
 
     PerImu& imu_state(const std::string& sensorLabel, TimeStamp t);
     /// Propagates the covariances of an estimate to time t (random walk).
     void predict(Estimate& e, TimeStamp t) const;
+    /// Applies the posterior sigma floors.
+    void apply_floors(Estimate& e) const;
+    /// Processes the waiting readings that motion hints allow. True if updated.
+    bool drain(PerImu& s);
+    /// Adds one reading to the window and checks it. True if updated.
+    bool process_sample(PerImu& s, const Sample& smp);
     /// Checks the current window; updates the estimate if it is a standstill.
-    bool               process_window(PerImu& s);
+    bool               try_update(PerImu& s);
     [[nodiscard]] bool hints_allow(TimeStamp from, TimeStamp to) const;
+    void               prune_hints();
 };
 
 }  // namespace mola::imu
