@@ -64,3 +64,11 @@ mola_add_test(
   LINK_LIBRARIES
     mola::mola_imu_preintegration
 )
+
+mola_add_test(
+  TARGET  test-imu-bias-tracker
+  SOURCES test-imu-bias-tracker.cpp
+  LINK_LIBRARIES
+    mola::mola_imu_preintegration
+    Eigen3::Eigen
+)

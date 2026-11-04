@@ -31,6 +31,14 @@ Everything is GTSAM-free: MRPT Lie algebra only.
   defers readiness while the buffered accel directions say the window is motion rather than gravity,
   released by `dispersion_timeout`. The shipped LO pipelines opt into both. `bias_gyro` is a plain mean: real rotation on a moving start, do not wire it
   into a preintegrator without a staticness gate.
+- `ImuBiasTracker` — per-sensor-label gyro and accel bias, as random walks (a Kalman filter each),
+  in the IMU SENSOR frame. Updated by standstill windows it detects itself (gyro/accel RMS about
+  their means, gyro mean close to the current bias, |accel| close to g; at rest only the accel bias
+  component ALONG gravity is observable, so that is the only one updated) and by external
+  measurements (e.g. `MapGravityEstimator`). A smooth slow rotation is indistinguishable from a
+  bias from the IMU alone: `add_motion_hint()` vetoes windows, `require_static_hint` makes hints
+  mandatory. A straight constant-velocity window may pass as standstill; its gyro mean is still the
+  bias, so it is a correct measurement.
 - `LocalVelocityBuffer` — time-keyed ring of v/a/ω/orientation; YAML (de)serialize; window queries.
 - `trajectory_from_buffer()` — dead-reckons an SE(3) trajectory around `t=0` from one orientation
   anchor + one velocity anchor + IMU ω/accel. Specific force → coordinate accel via
