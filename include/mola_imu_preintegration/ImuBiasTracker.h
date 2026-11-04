@@ -40,8 +40,8 @@ namespace mola::imu
  *    uncertainty, and the mean specific force has the magnitude of gravity. The
  *    window mean of the gyroscope is then a measurement of its bias. For the
  *    accelerometer, only the component along gravity is observable without knowing
- *    the attitude, so it updates just that one: `|mean(a)| - g = u^T b_acc`, with
- *    `u` the measured gravity direction (stops at different tilts make the rest
+ *    the attitude, so it updates just that one: `|mean(a) - b_acc| = g`,
+ *    linearized at the current estimate (stops at different tilts make the rest
  *    observable). That component is relative to `gravity_magnitude`: an error in it, or in the
  *    accelerometer scale, ends up in the bias. Accepted windows do not overlap.
  *    Unlike ImuInitialCalibrator, it keeps doing this at every stop, not only at
@@ -204,7 +204,10 @@ class ImuBiasTracker
      *  `motion_hint_hold`): to describe a motion increment over [t_a, t_b], give
      *  the same hint at both ends. Hints of all sources are merged ("moving"
      *  wins at equal stamps), and the newest of any source releases the
-     *  readings waiting for hints.
+     *  readings waiting for hints: a source later than the others can only veto
+     *  windows not yet processed, so sources should have similar latencies. A
+     *  hint more than 10 s older than the newest one is taken as a clock jump back
+     *  (e.g. a dataset restart), and the newer hints are discarded.
      *  \return the labels of the IMUs whose estimate was updated, as readings
      *          waiting for this hint are processed.
      */
@@ -271,8 +274,9 @@ class ImuBiasTracker
         struct Reacquire
         {
             mrpt::math::TVector3D mean{0, 0, 0};
-            double                time    = 0;  //!< [s]
-            TimeStamp             last_t1 = 0;
+            double                time       = 0;  //!< [s]
+            TimeStamp             last_t1    = 0;
+            bool                  all_static = true;  //!< all with a "static" hint
         };
         std::optional<Reacquire> reacquire;
     };

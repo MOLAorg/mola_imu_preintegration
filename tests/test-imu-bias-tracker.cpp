@@ -321,6 +321,21 @@ void test_reacquisition_robustness()
         }
         ASSERT_LT_(norm3(tr.estimate(imu.label)->bias_gyro - imu.bias_gyro), 1e-3);
     }
+    // A smooth slow rotation without hints, then a single "static" hint: the short
+    // re-acquisition needs static hints on all the windows, so no reset.
+    {
+        ImuBiasTracker tr;
+        SimImu         imu;
+        imu.gyro_noise                 = 0.001;
+        tr.parameters.max_hint_latency = 0;
+        feed(tr, imu, 10.0, standing);
+        const auto before = *tr.estimate(imu.label);
+        imu.t += 1.0;
+        feed(tr, imu, 3.0, [](SimImu& si) { return si.sample(0.03); });
+        tr.add_motion_hint(imu.t, true);
+        feed(tr, imu, 0.5, [](SimImu& si) { return si.sample(0.03); });
+        ASSERT_EQUAL_(tr.estimate(imu.label)->standstill_updates, before.standstill_updates);
+    }
     std::cout << "re-acquisition: over interruptions, mid-size steps, bounded by the prior\n";
 }
 
@@ -572,6 +587,20 @@ void test_stops_at_different_tilts()
         ASSERT_LT_(std::sqrt(e.cov_acc(i, i)), 0.05);
     }
     std::cout << "tilts: full accel bias within " << norm3(e.bias_acc - imu.bias_acc) << " m/s^2\n";
+
+    // A large bias across gravity (beyond a linear model of the norm), same stops:
+    ImuBiasTracker tr2;
+    SimImu         imu2;
+    imu2.bias_acc = {0.6, -0.3, 0.08};
+    for (const auto& [pitch, roll] :
+         std::vector<std::pair<double, double>>{{0, 0}, {15, 0}, {-15, 0}, {0, 15}, {0, -15}})
+    {
+        imu2.mounting =
+            mrpt::poses::CPose3D::FromYawPitchRoll(0, mrpt::DEG2RAD(pitch), mrpt::DEG2RAD(roll));
+        feed(tr2, imu2, 20.0, standing);
+        feed(tr2, imu2, 5.0, driving);
+    }
+    ASSERT_LT_(norm3(tr2.estimate(imu2.label)->bias_acc - imu2.bias_acc), 0.02);
 }
 
 // ---------------------------------------------------------------------------
@@ -766,6 +795,19 @@ void test_external_measurements()
     ASSERT_NEAR_(e2.cov_gyro(2, 2), 1.0 / (1.0 / p0 + 1.0 / rOld), 1e-15);
     ASSERT_NEAR_(e2.bias_gyro.z, 0.01 * p0 / (p0 + rOld), 1e-12);
     ASSERT_EQUAL_(e2.last_update, 5000.0);
+    // Zero covariances (no floors) and non-finite values: the estimate stays finite.
+    ImuBiasTracker tr3;
+    tr3.parameters.bias_gyro_min_sigma = 0;
+    mrpt::math::CMatrixDouble33 Z;
+    Z.setZero();
+    tr3.add_measurement("imu", 10.0, std::make_pair(TVector3D(0.001, 0, 0), Z), std::nullopt);
+    tr3.add_measurement("imu", 10.0, std::make_pair(TVector3D(0.002, 0, 0), Z), std::nullopt);
+    tr3.add_measurement(
+        "imu", 11.0, std::make_pair(TVector3D(std::nan(""), 0, 0), R), std::nullopt);
+    const auto e3 = *tr3.estimate("imu");
+    ASSERT_(std::isfinite(e3.bias_gyro.x));
+    ASSERT_(std::isfinite(e3.cov_gyro(0, 0)));
+    ASSERT_NEAR_(e3.bias_gyro.x, 0.001, 1e-12);
     std::cout << "external measurements: Kalman fusion equals the closed form\n";
 }
 

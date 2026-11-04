@@ -20,6 +20,7 @@
 #include <Eigen/Dense>
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 using namespace mola::imu;
 
@@ -42,8 +43,16 @@ mrpt::math::TVector3D fromEigen(const Eigen::Vector3d& v) { return {v.x(), v.y()
 void kalman_update(
     mrpt::math::TVector3D& x, Mat33& P, const mrpt::math::TVector3D& z, const Mat33& R)
 {
-    const Eigen::Matrix3d S  = P.asEigen() + R.asEigen();
-    const Eigen::Matrix3d K  = P.asEigen() * S.inverse();
+    const Eigen::Matrix3d S = P.asEigen() + R.asEigen();
+    // A singular innovation (e.g. zero covariances): keep the estimate.
+    Eigen::Matrix3d Sinv;
+    bool            invertible = false;
+    S.computeInverseWithCheck(Sinv, invertible, 0.0);
+    if (!invertible || !Sinv.allFinite())
+    {
+        return;
+    }
+    const Eigen::Matrix3d K  = P.asEigen() * Sinv;
     const Eigen::Vector3d xn = toEigen(x) + K * (toEigen(z) - toEigen(x));
     Eigen::Matrix3d       Pn = (Eigen::Matrix3d::Identity() - K) * P.asEigen();
     Pn                       = 0.5 * (Pn + Pn.transpose()).eval();  // keep it symmetric
@@ -57,6 +66,10 @@ void kalman_update_scalar(
 {
     const Eigen::Vector3d Ph = P.asEigen() * h;
     const double          s  = h.dot(Ph) + r;
+    if (!(s > 0) || !std::isfinite(s))
+    {
+        return;
+    }
     const Eigen::Vector3d K  = Ph / s;
     const Eigen::Vector3d xn = toEigen(x) + K * (z - h.dot(toEigen(x)));
     Eigen::Matrix3d       Pn = P.asEigen() - K * Ph.transpose();
@@ -250,6 +263,9 @@ std::size_t ImuBiasTracker::add(const mrpt::obs::CObservationIMU& imu)
         {
             s.est.last_update = smp.t;
         }
+        // Hints far ahead of the new time are from the previous timeline:
+        hints_.erase(hints_.upper_bound(smp.t + HINT_CLOCK_JUMP_BACK), hints_.end());
+        newest_hint_ = hints_.empty() ? 0 : std::min(newest_hint_, hints_.rbegin()->first);
     }
     s.newest = smp.t;
     s.input.push_back(smp);
@@ -433,15 +449,17 @@ bool ImuBiasTracker::try_update(PerImu& s)
             if (!r || !((wMean - toEigen(r->mean)).norm() <= p.standstill_max_gyro_mean_offset))
             {
                 r.emplace();
-                r->mean    = fromEigen(wMean);
-                r->time    = t1 - t0;
-                r->last_t1 = t1;
+                r->mean       = fromEigen(wMean);
+                r->time       = t1 - t0;
+                r->last_t1    = t1;
+                r->all_static = verdict == HintVerdict::Static;
                 return false;
             }
             r->time += std::min(t1 - r->last_t1, t1 - t0);
-            r->last_t1 = t1;
-            const double needed =
-                verdict == HintVerdict::Static ? 2 * p.standstill_window : p.gyro_reacquire_time;
+            r->last_t1    = t1;
+            r->all_static = r->all_static && verdict == HintVerdict::Static;
+            // Shorter only if static hints covered all the windows that add up:
+            const double needed = r->all_static ? 2 * p.standstill_window : p.gyro_reacquire_time;
             if (r->time < needed)
             {
                 return false;
@@ -468,11 +486,18 @@ bool ImuBiasTracker::try_update(PerImu& s)
 
     if (accAlongVar)
     {
-        // |mean(a)| = |R^T g_up + b_acc| ~= g + u^T b_acc, so only u^T b_acc is observed:
-        const double z = aMean.norm() - p.gravity_magnitude;
-        const double r = std::max(*accAlongVar, mrpt::square(p.standstill_acc_min_sigma)) +
-                         mrpt::square(p.bias_acc_random_walk) * age;
-        kalman_update_scalar(e.bias_acc, e.cov_acc, u, z, r);
+        // At rest |mean(a) - b_acc| = g: linearized at the estimate, only the bias
+        // component along gravity, h, is observed.
+        const Eigen::Vector3d gEst  = aMean - toEigen(e.bias_acc);
+        const double          gNorm = gEst.norm();
+        if (gNorm > 0.5 * p.gravity_magnitude)
+        {
+            const Eigen::Vector3d h = gEst / gNorm;
+            const double          z = h.dot(toEigen(e.bias_acc)) + gNorm - p.gravity_magnitude;
+            const double r = std::max(*accAlongVar, mrpt::square(p.standstill_acc_min_sigma)) +
+                             mrpt::square(p.bias_acc_random_walk) * age;
+            kalman_update_scalar(e.bias_acc, e.cov_acc, h, z, r);
+        }
     }
     apply_floors(e);
 
@@ -556,6 +581,12 @@ void ImuBiasTracker::add_measurement(
     const std::optional<std::pair<LinearAcceleration, mrpt::math::CMatrixDouble33>>& acc)
 {
     if ((!gyro && !acc) || !(t > 0) || !std::isfinite(t))
+    {
+        return;
+    }
+    const auto finite = [](const mrpt::math::TVector3D& v, const mrpt::math::CMatrixDouble33& c)
+    { return plausible(v, std::numeric_limits<double>::max()) && c.asEigen().allFinite(); };
+    if ((gyro && !finite(gyro->first, gyro->second)) || (acc && !finite(acc->first, acc->second)))
     {
         return;
     }
