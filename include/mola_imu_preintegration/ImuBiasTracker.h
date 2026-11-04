@@ -42,7 +42,7 @@ namespace mola::imu
  *    accelerometer, only the component along gravity is observable without knowing
  *    the attitude, so it updates just that one: `|mean(a)| - g = u^T b_acc`, with
  *    `u` the measured gravity direction (stops at different tilts make the rest
- *    observable). That component is relative to `gravity`: an error in it, or in the
+ *    observable). That component is relative to `gravity_magnitude`: an error in it, or in the
  *    accelerometer scale, ends up in the bias. Accepted windows do not overlap.
  *    Unlike ImuInitialCalibrator, it keeps doing this at every stop, not only at
  *    startup.
@@ -101,17 +101,26 @@ class ImuBiasTracker
         double standstill_max_gyro_rms = 0.02;
         /// The window mean angular velocity is accepted as a bias measurement if
         /// it differs from the current estimate by less than the largest of this
-        /// [rad/s] and `standstill_gyro_offset_sigmas` times the estimate sigma
-        /// (sqrt of the covariance trace). Rejects steady rotations once the
-        /// estimate has converged, while a large bias is still accepted at first.
+        /// [rad/s] and `standstill_gyro_offset_sigmas` times the sigma of that
+        /// difference (estimate propagated to the window, plus the window's own).
+        /// Rejects steady rotations once the estimate has converged, while a large
+        /// bias is still accepted at first. If a "static" motion hint covers the
+        /// window, the offset is taken as a change of the bias instead, and its
+        /// covariance is reset to the prior.
         double standstill_max_gyro_mean_offset = 0.01;
         double standstill_gyro_offset_sigmas   = 3.0;
+        /// If windows rejected only by the gate above keep agreeing with each other
+        /// (within standstill_max_gyro_mean_offset) for this long, the bias is taken
+        /// to have changed (e.g. after a power cycle) and its covariance is reset to
+        /// the prior [s]. A smooth constant-rate rotation lasting this long, without
+        /// motion hints, would be taken as a bias change too.
+        double gyro_reacquire_time = 30.0;
         /// Maximum RMS deviation of the specific force from its window mean [m/s^2].
         double standstill_max_acc_rms = 0.3;
-        /// Maximum difference between |mean specific force| and `gravity` [m/s^2].
+        /// Maximum difference between |mean specific force| and `gravity_magnitude` [m/s^2].
         double standstill_max_acc_norm_error = 0.3;
         /// Gravity magnitude [m/s^2].
-        double gravity = 9.81;
+        double gravity_magnitude = 9.81;
         /** @} */
 
         /** @name Motion hints
@@ -177,19 +186,31 @@ class ImuBiasTracker
     /** Feeds one raw reading (sensor frame) of the IMU named by its sensorLabel.
      *  Readings must be in time order per IMU: duplicated or slightly older stamps
      *  are dropped, and a jump back in time of more than 1 s (e.g. a dataset
-     *  restart) restarts that IMU, keeping its bias estimate. Readings without
-     *  angular velocity, or with non-finite values, are ignored (only the
-     *  accelerometer part, if just that one is non-finite).
-     *  \return true if the estimate of that IMU was updated.
+     *  restart) restarts that IMU, keeping its bias estimate (its `stamp` and
+     *  `last_update` move back to the new time). Readings without angular
+     *  velocity or a valid time stamp, or with non-finite or implausible values,
+     *  are ignored (only the accelerometer part, if just that one is bad).
+     *  \return how many times the estimate of that IMU was updated. Once motion
+     *  hints are in use, most updates happen in add_motion_hint() instead.
      */
-    bool add(const mrpt::obs::CObservationIMU& imu);
+    std::size_t add(const mrpt::obs::CObservationIMU& imu);
 
     /** Tells whether the vehicle (all its IMUs) is static at time `t`, from another
-     *  source. Each hint holds until the next one (at most `motion_hint_hold`).
+     *  source, in the same clock as the IMU readings.
+     *
+     *  Hints are point events that hold forward, until the next one (at most
+     *  `motion_hint_hold`): to describe a motion increment over [t_a, t_b], give
+     *  the same hint at both ends. Hints of all sources are merged ("moving"
+     *  wins at equal stamps), and the newest of any source releases the
+     *  readings waiting for hints.
      *  \return the labels of the IMUs whose estimate was updated, as readings
      *          waiting for this hint are processed.
      */
     std::vector<std::string> add_motion_hint(TimeStamp t, bool isStatic);
+
+    /** Processes all the readings still waiting for motion hints, e.g. at the end
+     *  of a dataset. \return the labels of the IMUs updated. */
+    std::vector<std::string> flush();
 
     /** Fuses an external bias measurement of one IMU (sensor frame), with its
      *  covariance. Either part may be omitted. A measurement older than the
@@ -238,10 +259,22 @@ class ImuBiasTracker
 
     struct PerImu
     {
-        Estimate           est;
-        std::deque<Sample> input;  //!< readings waiting for motion hints
-        Window             window;
-        TimeStamp          newest = 0;  //!< newest accepted reading time
+        Estimate                 est;
+        std::deque<Sample>       input;  //!< readings waiting for motion hints
+        Window                   window;
+        std::optional<TimeStamp> newest;  //!< newest accepted reading time
+
+        /// Re-acquisition of a changed bias: start and mean of the first window
+        /// rejected only by the offset gate.
+        std::optional<TimeStamp> reacquire_start;
+        mrpt::math::TVector3D    reacquire_mean{0, 0, 0};
+    };
+
+    enum class HintVerdict
+    {
+        Unknown,
+        Static,
+        Moving
     };
 
     std::map<std::string, PerImu> imus_;
@@ -254,14 +287,15 @@ class ImuBiasTracker
     void predict(Estimate& e, TimeStamp t) const;
     /// Applies the posterior sigma floors.
     void apply_floors(Estimate& e) const;
-    /// Processes the waiting readings that motion hints allow. True if updated.
-    bool drain(PerImu& s);
+    /// Processes the waiting readings that motion hints allow (all, if `all`).
+    /// Returns the number of updates.
+    std::size_t drain(PerImu& s, bool all);
     /// Adds one reading to the window and checks it. True if updated.
     bool process_sample(PerImu& s, const Sample& smp);
     /// Checks the current window; updates the estimate if it is a standstill.
-    bool               try_update(PerImu& s);
-    [[nodiscard]] bool hints_allow(TimeStamp from, TimeStamp to) const;
-    void               prune_hints();
+    bool                      try_update(PerImu& s);
+    [[nodiscard]] HintVerdict hints_verdict(TimeStamp from, TimeStamp to) const;
+    void                      prune_hints();
 };
 
 }  // namespace mola::imu

@@ -65,9 +65,22 @@ void kalman_update_scalar(
     P                        = Mat33(Pn);
 }
 
-bool all_finite(const mrpt::math::TVector3D& v)
+/// Finite, and below an absolute limit (readings beyond any real IMU are garbage).
+bool plausible(const mrpt::math::TVector3D& v, double maxAbs)
 {
-    return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z);
+    return std::abs(v.x) < maxAbs && std::abs(v.y) < maxAbs && std::abs(v.z) < maxAbs;
+}
+constexpr double MAX_GYRO = 100.0;  // [rad/s]
+constexpr double MAX_ACC  = 1000.0;  // [m/s^2]
+
+/// Raises the eigenvalues of a covariance to at least minVar, so the floor also
+/// holds along directions other than the axes.
+void floor_eigenvalues(Mat33& P, double minVar)
+{
+    const Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> es(P.asEigen());
+    const Eigen::Vector3d                                l = es.eigenvalues().cwiseMax(minVar);
+    const Eigen::Matrix3d                                V = es.eigenvectors();
+    P = Mat33(Eigen::Matrix3d(V * l.asDiagonal() * V.transpose()));
 }
 
 /// Larger backward jumps restart an IMU (e.g. a replayed dataset).
@@ -85,9 +98,10 @@ void ImuBiasTracker::Parameters::load_from(const mrpt::containers::yaml& cfg)
     MCP_LOAD_OPT(cfg, standstill_max_gyro_rms);
     MCP_LOAD_OPT(cfg, standstill_max_gyro_mean_offset);
     MCP_LOAD_OPT(cfg, standstill_gyro_offset_sigmas);
+    MCP_LOAD_OPT(cfg, gyro_reacquire_time);
     MCP_LOAD_OPT(cfg, standstill_max_acc_rms);
     MCP_LOAD_OPT(cfg, standstill_max_acc_norm_error);
-    MCP_LOAD_OPT(cfg, gravity);
+    MCP_LOAD_OPT(cfg, gravity_magnitude);
     MCP_LOAD_OPT(cfg, require_static_hint);
     MCP_LOAD_OPT(cfg, motion_hint_hold);
     MCP_LOAD_OPT(cfg, max_hint_latency);
@@ -109,9 +123,10 @@ void ImuBiasTracker::Parameters::save_to(mrpt::containers::yaml& cfg) const
     MCP_SAVE(cfg, standstill_max_gyro_rms);
     MCP_SAVE(cfg, standstill_max_gyro_mean_offset);
     MCP_SAVE(cfg, standstill_gyro_offset_sigmas);
+    MCP_SAVE(cfg, gyro_reacquire_time);
     MCP_SAVE(cfg, standstill_max_acc_rms);
     MCP_SAVE(cfg, standstill_max_acc_norm_error);
-    MCP_SAVE(cfg, gravity);
+    MCP_SAVE(cfg, gravity_magnitude);
     MCP_SAVE(cfg, require_static_hint);
     MCP_SAVE(cfg, motion_hint_hold);
     MCP_SAVE(cfg, max_hint_latency);
@@ -163,7 +178,6 @@ ImuBiasTracker::PerImu& ImuBiasTracker::imu_state(const std::string& sensorLabel
         s.est.cov_gyro = diag(parameters.bias_gyro_prior_sigma);
         s.est.cov_acc  = diag(parameters.bias_acc_prior_sigma);
         s.est.stamp    = t;
-        s.newest       = t;
         it             = imus_.emplace(sensorLabel, std::move(s)).first;
     }
     return it->second;
@@ -176,80 +190,80 @@ void ImuBiasTracker::predict(Estimate& e, TimeStamp t) const
     {
         return;
     }
+    // The zero-mean prior is the most uncertain an estimate can be:
+    const double maxG = mrpt::square(parameters.bias_gyro_prior_sigma);
+    const double maxA = mrpt::square(parameters.bias_acc_prior_sigma);
     for (int i = 0; i < 3; i++)
     {
-        e.cov_gyro(i, i) += mrpt::square(parameters.bias_gyro_random_walk) * dt;
-        e.cov_acc(i, i) += mrpt::square(parameters.bias_acc_random_walk) * dt;
+        auto& g = e.cov_gyro(i, i);
+        auto& a = e.cov_acc(i, i);
+        g = std::max(g, std::min(maxG, g + mrpt::square(parameters.bias_gyro_random_walk) * dt));
+        a = std::max(a, std::min(maxA, a + mrpt::square(parameters.bias_acc_random_walk) * dt));
     }
     e.stamp = t;
 }
 
 void ImuBiasTracker::apply_floors(Estimate& e) const
 {
-    for (int i = 0; i < 3; i++)
-    {
-        e.cov_gyro(i, i) = std::max(e.cov_gyro(i, i), mrpt::square(parameters.bias_gyro_min_sigma));
-        e.cov_acc(i, i)  = std::max(e.cov_acc(i, i), mrpt::square(parameters.bias_acc_min_sigma));
-    }
+    floor_eigenvalues(e.cov_gyro, mrpt::square(parameters.bias_gyro_min_sigma));
+    floor_eigenvalues(e.cov_acc, mrpt::square(parameters.bias_acc_min_sigma));
 }
 
-bool ImuBiasTracker::add(const mrpt::obs::CObservationIMU& imu)
+std::size_t ImuBiasTracker::add(const mrpt::obs::CObservationIMU& imu)
 {
     using namespace mrpt::obs;
     if (!imu.has(IMU_WX) || !imu.has(IMU_WY) || !imu.has(IMU_WZ))
     {
-        return false;
+        return 0;
     }
     Sample smp;
     smp.t = mrpt::Clock::toDouble(imu.timestamp);
     smp.w = {imu.get(IMU_WX), imu.get(IMU_WY), imu.get(IMU_WZ)};
-    if (!all_finite(smp.w) || !std::isfinite(smp.t))
+    if (!plausible(smp.w, MAX_GYRO) || !(smp.t > 0) || !std::isfinite(smp.t))
     {
-        return false;
+        return 0;  // no angular velocity, or no valid time
     }
     if (imu.has(IMU_X_ACC) && imu.has(IMU_Y_ACC) && imu.has(IMU_Z_ACC))
     {
         const mrpt::math::TVector3D a(imu.get(IMU_X_ACC), imu.get(IMU_Y_ACC), imu.get(IMU_Z_ACC));
-        if (all_finite(a))
+        if (plausible(a, MAX_ACC))
         {
             smp.a = a;
         }
     }
 
-    const bool isNew = imus_.count(imu.sensorLabel) == 0;
-    auto&      s     = imu_state(imu.sensorLabel, smp.t);
-    if (!isNew && smp.t <= s.newest)
+    auto& s = imu_state(imu.sensorLabel, smp.t);
+    if (s.newest && smp.t <= *s.newest)
     {
-        if (s.newest - smp.t <= CLOCK_JUMP_BACK)
+        if (*s.newest - smp.t <= CLOCK_JUMP_BACK)
         {
-            return false;  // duplicated or out of order: dropped
+            return 0;  // duplicated or out of order: dropped
         }
         // The clock went back: restart this IMU, keeping its estimate.
         s.input.clear();
         s.window.clear();
+        s.reacquire_start.reset();
         s.est.stamp = smp.t;
         if (s.est.has_measurements())
         {
             s.est.last_update = smp.t;
         }
-        hints_.erase(hints_.upper_bound(smp.t), hints_.end());
-        newest_hint_ = hints_.empty() ? 0 : hints_.rbegin()->first;
     }
     s.newest = smp.t;
     s.input.push_back(smp);
-    const bool updated = drain(s);
+    const auto n = drain(s, false);
     prune_hints();
-    return updated;
+    return n;
 }
 
-bool ImuBiasTracker::drain(PerImu& s)
+std::size_t ImuBiasTracker::drain(PerImu& s, bool all)
 {
-    const bool hintsInUse = hints_used_ || parameters.require_static_hint;
-    bool       updated    = false;
+    const bool  hintsInUse = hints_used_ || parameters.require_static_hint;
+    std::size_t n          = 0;
     while (!s.input.empty())
     {
         const TimeStamp t = s.input.front().t;
-        if (hintsInUse && t > newest_hint_ && s.newest - t < parameters.max_hint_latency)
+        if (!all && hintsInUse && t > newest_hint_ && *s.newest - t < parameters.max_hint_latency)
         {
             break;  // wait for hints covering this reading
         }
@@ -257,7 +271,20 @@ bool ImuBiasTracker::drain(PerImu& s)
         s.input.pop_front();
         if (process_sample(s, smp))
         {
-            updated = true;
+            n++;
+        }
+    }
+    return n;
+}
+
+std::vector<std::string> ImuBiasTracker::flush()
+{
+    std::vector<std::string> updated;
+    for (auto& [label, s] : imus_)
+    {
+        if (drain(s, true) > 0)
+        {
+            updated.push_back(label);
         }
     }
     return updated;
@@ -269,6 +296,7 @@ bool ImuBiasTracker::process_sample(PerImu& s, const Sample& smp)
     if (!w.samples.empty() && smp.t - w.samples.back().t > parameters.max_sample_gap)
     {
         w.clear();
+        s.reacquire_start.reset();
     }
     w.push(smp);
     if (w.samples.back().t - w.samples.front().t < parameters.standstill_window)
@@ -289,7 +317,7 @@ bool ImuBiasTracker::process_sample(PerImu& s, const Sample& smp)
     return false;
 }
 
-bool ImuBiasTracker::hints_allow(TimeStamp from, TimeStamp to) const
+ImuBiasTracker::HintVerdict ImuBiasTracker::hints_verdict(TimeStamp from, TimeStamp to) const
 {
     bool anyStatic = false;
     auto it        = hints_.upper_bound(from);
@@ -306,11 +334,11 @@ bool ImuBiasTracker::hints_allow(TimeStamp from, TimeStamp to) const
     {
         if (!it->second)
         {
-            return false;  // the vehicle was moving at some point
+            return HintVerdict::Moving;
         }
         anyStatic = true;
     }
-    return anyStatic || !parameters.require_static_hint;
+    return anyStatic ? HintVerdict::Static : HintVerdict::Unknown;
 }
 
 bool ImuBiasTracker::try_update(PerImu& s)
@@ -324,67 +352,113 @@ bool ImuBiasTracker::try_update(PerImu& s)
     }
     const TimeStamp t0 = win.samples.front().t;
     const TimeStamp t1 = win.samples.back().t;
-    if (!hints_allow(t0, t1))
+
+    // Any rejection below, except the one by the offset gate, ends a re-acquisition:
+    const auto reject = [&s]()
     {
+        s.reacquire_start.reset();
         return false;
+    };
+
+    const auto verdict = hints_verdict(t0, t1);
+    if (verdict == HintVerdict::Moving || (p.require_static_hint && verdict != HintVerdict::Static))
+    {
+        return reject();
     }
 
-    // Gyroscope: mean and per-axis variance.
+    // Gyroscope: mean and per-axis variance. Gates are written as !(x <= max), so
+    // NaN fails them.
     const double          nd    = static_cast<double>(n);
     const Eigen::Vector3d wMean = toEigen(win.sum_w) / nd;
     const Eigen::Vector3d wVar =
         ((toEigen(win.sum_ww) - nd * wMean.cwiseAbs2()) / (nd - 1)).cwiseMax(0.0);
-    if (std::sqrt(wVar.sum()) > p.standstill_max_gyro_rms)
+    if (!(std::sqrt(wVar.sum()) <= p.standstill_max_gyro_rms))
     {
-        return false;  // vibrating or rotating: moving
-    }
-    auto&        e         = s.est;
-    const double sigmaBias = std::sqrt(e.cov_gyro.asEigen().trace());
-    const double maxOffset =
-        std::max(p.standstill_max_gyro_mean_offset, p.standstill_gyro_offset_sigmas * sigmaBias);
-    const double gyroOffset = (wMean - toEigen(e.bias_gyro)).norm();
-    if (gyroOffset > maxOffset)
-    {
-        return false;  // a steady rotation, not a bias
+        return reject();  // vibrating or rotating: moving
     }
 
     // Accelerometer (optional): mean, spread and norm.
     std::optional<double> accAlongVar;
     Eigen::Vector3d       aMean = Eigen::Vector3d::Zero();
     Eigen::Vector3d       u     = Eigen::Vector3d::UnitZ();
-    if (win.na >= 2)
+    if (win.na >= std::max<std::size_t>(p.standstill_min_samples, 2))
     {
         const double na = static_cast<double>(win.na);
         aMean           = toEigen(win.sum_a) / na;
         const Eigen::Matrix3d aCov =
             (win.sum_aa.asEigen() - na * aMean * aMean.transpose()) / (na - 1);
         u = aMean.normalized();
-        if (std::sqrt(std::max(aCov.trace(), 0.0)) > p.standstill_max_acc_rms)
+        if (!(std::sqrt(std::max(aCov.trace(), 0.0)) <= p.standstill_max_acc_rms))
         {
-            return false;
+            return reject();
         }
-        if (std::abs(aMean.norm() - p.gravity) > p.standstill_max_acc_norm_error)
+        if (!(std::abs(aMean.norm() - p.gravity_magnitude) <= p.standstill_max_acc_norm_error))
         {
-            return false;  // not just gravity
+            return reject();  // not just gravity
         }
         accAlongVar = std::max(u.dot(aCov * u), 0.0) / na;
     }
-
-    // A standstill: update the estimate at the window end.
-    predict(e, t1);
 
     Mat33 Rg;
     for (int i = 0; i < 3; i++)
     {
         Rg(i, i) = std::max(wVar[i] / nd, mrpt::square(p.standstill_gyro_min_sigma));
     }
+
+    // Offset gate: a steady rotation, not a bias. The gate grows with the
+    // uncertainty at this time.
+    auto& e = s.est;
+    {
+        Estimate ePred = e;
+        predict(ePred, t1);
+        const double sigma = std::sqrt(ePred.cov_gyro.asEigen().trace() + Rg.asEigen().trace());
+        const double maxOffset =
+            std::max(p.standstill_max_gyro_mean_offset, p.standstill_gyro_offset_sigmas * sigma);
+        if (!((wMean - toEigen(e.bias_gyro)).norm() <= maxOffset))
+        {
+            if (verdict == HintVerdict::Static)
+            {
+                // The vehicle is still: the bias itself has changed.
+                e.cov_gyro = diag(p.bias_gyro_prior_sigma);
+            }
+            else if (
+                !s.reacquire_start ||
+                !((wMean - toEigen(s.reacquire_mean)).norm() <= p.standstill_max_gyro_mean_offset))
+            {
+                // Re-acquisition: consistent rejected windows for long enough mean
+                // the bias itself has changed.
+                s.reacquire_start = t0;
+                s.reacquire_mean  = fromEigen(wMean);
+                return false;
+            }
+            else if (t1 - *s.reacquire_start < p.gyro_reacquire_time)
+            {
+                return false;
+            }
+            else
+            {
+                e.cov_gyro = diag(p.bias_gyro_prior_sigma);
+            }
+        }
+    }
+    s.reacquire_start.reset();
+
+    // A standstill: update the estimate at the window end. A window older than the
+    // estimate (after a newer external measurement) counts as less certain.
+    const double age = std::max(0.0, e.stamp - t1);
+    predict(e, t1);
+    for (int i = 0; i < 3; i++)
+    {
+        Rg(i, i) += mrpt::square(p.bias_gyro_random_walk) * age;
+    }
     kalman_update(e.bias_gyro, e.cov_gyro, fromEigen(wMean), Rg);
 
     if (accAlongVar)
     {
         // |mean(a)| = |R^T g_up + b_acc| ~= g + u^T b_acc, so only u^T b_acc is observed:
-        const double z = aMean.norm() - p.gravity;
-        const double r = std::max(*accAlongVar, mrpt::square(p.standstill_acc_min_sigma));
+        const double z = aMean.norm() - p.gravity_magnitude;
+        const double r = std::max(*accAlongVar, mrpt::square(p.standstill_acc_min_sigma)) +
+                         mrpt::square(p.bias_acc_random_walk) * age;
         kalman_update_scalar(e.bias_acc, e.cov_acc, u, z, r);
     }
     apply_floors(e);
@@ -397,9 +471,15 @@ bool ImuBiasTracker::try_update(PerImu& s)
 std::vector<std::string> ImuBiasTracker::add_motion_hint(TimeStamp t, bool isStatic)
 {
     std::vector<std::string> updated;
-    if (!std::isfinite(t))
+    if (!(t > 0) || !std::isfinite(t))
     {
         return updated;
+    }
+    // The hint clock went back (e.g. a dataset restart): forget the newer ones.
+    if (!hints_.empty() && t < newest_hint_ - CLOCK_JUMP_BACK)
+    {
+        hints_.erase(hints_.upper_bound(t), hints_.end());
+        newest_hint_ = hints_.empty() ? 0 : hints_.rbegin()->first;
     }
     // Two hints at the same time: "moving" wins.
     auto [it, inserted] = hints_.emplace(t, isStatic);
@@ -411,7 +491,7 @@ std::vector<std::string> ImuBiasTracker::add_motion_hint(TimeStamp t, bool isSta
     newest_hint_ = std::max(newest_hint_, t);
     for (auto& [label, s] : imus_)
     {
-        if (drain(s))
+        if (drain(s, false) > 0)
         {
             updated.push_back(label);
         }
@@ -426,7 +506,11 @@ void ImuBiasTracker::prune_hints()
     std::optional<TimeStamp> oldest;
     for (const auto& [label, s] : imus_)
     {
-        TimeStamp t = s.newest;
+        if (!s.newest)
+        {
+            continue;  // only external measurements so far
+        }
+        TimeStamp t = *s.newest;
         if (!s.input.empty())
         {
             t = std::min(t, s.input.front().t);
@@ -457,7 +541,7 @@ void ImuBiasTracker::add_measurement(
     const std::optional<std::pair<AngularVelocity, mrpt::math::CMatrixDouble33>>&    gyro,
     const std::optional<std::pair<LinearAcceleration, mrpt::math::CMatrixDouble33>>& acc)
 {
-    if (!gyro && !acc)
+    if ((!gyro && !acc) || !(t > 0) || !std::isfinite(t))
     {
         return;
     }
@@ -497,7 +581,14 @@ std::optional<ImuBiasTracker::Estimate> ImuBiasTracker::estimate(
         return std::nullopt;
     }
     Estimate e = it->second.est;
-    predict(e, t ? *t : it->second.newest);
+    if (t)
+    {
+        predict(e, *t);
+    }
+    else if (it->second.newest)
+    {
+        predict(e, *it->second.newest);
+    }
     return e;
 }
 

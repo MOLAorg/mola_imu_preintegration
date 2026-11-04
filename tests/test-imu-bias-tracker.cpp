@@ -205,16 +205,93 @@ void test_large_bias_accepted()
     SimImu         imu;
     imu.bias_gyro = {0.012, -0.015, 0.018};
     ASSERT_GE_(feed(tr, imu, 10.0, standing), 8U);
-    const auto e = *tr.estimate(imu.label);
-    ASSERT_LT_(norm3(e.bias_gyro - imu.bias_gyro), 4e-4);
-    // Once converged, the same offset as a rotation is rejected:
-    imu.bias_gyro = {0, 0, 0};
-    imu.t += 1.0;  // a new window
-    ASSERT_EQUAL_(feed(tr, imu, 5.0, standing), 0U);
-    std::cout << "large bias: 0.026 rad/s accepted at first, rejected as a rotation later\n";
+    ASSERT_LT_(norm3(tr.estimate(imu.label)->bias_gyro - imu.bias_gyro), 4e-4);
+    std::cout << "large bias: 0.026 rad/s accepted at first\n";
 }
 
 // ---------------------------------------------------------------------------
+void test_bias_changes_are_reacquired()
+{
+    // Once converged, a step of the bias (e.g. after a power cycle) looks like a
+    // rotation, and is rejected at first...
+    {
+        ImuBiasTracker tr;
+        SimImu         imu;
+        feed(tr, imu, 10.0, standing);
+        imu.bias_gyro.z += 0.02;
+        imu.t += 1.0;  // a new window
+        ASSERT_EQUAL_(feed(tr, imu, 25.0, standing), 0U);
+        // ...until it has been consistent for gyro_reacquire_time:
+        ASSERT_GT_(feed(tr, imu, 15.0, standing), 0U);
+        ASSERT_LT_(norm3(tr.estimate(imu.label)->bias_gyro - imu.bias_gyro), 1e-3);
+    }
+    // With "static" hints, the step is accepted right away:
+    {
+        ImuBiasTracker tr;
+        SimImu         imu;
+        tr.parameters.max_hint_latency = 0;
+        feed(tr, imu, 10.0, standing);
+        imu.bias_gyro.z += 0.02;
+        imu.t += 1.0;
+        std::size_t n = 0;
+        for (int i = 0; i < 300; i++)
+        {
+            const auto o = standing(imu);
+            if (i % 10 == 0)
+            {
+                tr.add_motion_hint(imu.t, true);
+            }
+            n += tr.add(o);
+        }
+        ASSERT_GE_(n, 2U);
+        ASSERT_LT_(norm3(tr.estimate(imu.label)->bias_gyro - imu.bias_gyro), 1e-3);
+    }
+    // After a long time without updates, the gate has opened by the random walk:
+    {
+        ImuBiasTracker tr;
+        SimImu         imu;
+        feed(tr, imu, 10.0, standing);
+        imu.t += 20 * 3600.0;  // e.g. a day of driving without stops
+        imu.bias_gyro.z += 0.015;
+        ASSERT_GE_(feed(tr, imu, 3.0, standing), 2U);
+        ASSERT_LT_(norm3(tr.estimate(imu.label)->bias_gyro - imu.bias_gyro), 1e-3);
+    }
+    std::cout << "bias changes: re-acquired after a while, at once with static hints\n";
+}
+
+// ---------------------------------------------------------------------------
+/// Feeds standstill readings, with hints given `latency` seconds late every 0.1 s
+/// ("moving" only at `tMoving`). Returns the [t0, t1] of the accepted windows.
+std::vector<std::pair<double, double>> run_with_late_hints(
+    ImuBiasTracker& tr, SimImu& imu, double seconds, double latency, double tMoving)
+{
+    std::vector<std::pair<double, double>> accepted;
+    std::deque<double>                     pending;
+    for (int i = 0; i < static_cast<int>(seconds * RATE); i++)
+    {
+        const auto o = standing(imu);
+        if (i % 10 == 0)
+        {
+            pending.push_back(imu.t);
+        }
+        std::size_t n = tr.add(o);
+        while (!pending.empty() && imu.t - pending.front() >= latency - 1e-9)
+        {
+            const double th       = pending.front();
+            const bool   isMoving = std::abs(th - tMoving) < 0.05;
+            n += tr.add_motion_hint(th, !isMoving).size();
+            pending.pop_front();
+        }
+        if (n > 0)
+        {
+            const double t1 = tr.estimate(imu.label)->last_update;
+            // A window spans [standstill_window, standstill_window + 1 sample]:
+            accepted.emplace_back(t1 - tr.parameters.standstill_window - 1.1 / RATE, t1);
+        }
+    }
+    return accepted;
+}
+
 void test_slow_motion_and_late_hints()
 {
     // A wide curve at constant speed, without vibration: from the IMU alone it
@@ -227,51 +304,39 @@ void test_slow_motion_and_late_hints()
         ASSERT_GT_(feed(tr, imu, 3.0, [wz](SimImu& s) { return s.sample(wz); }), 0U);
     }
 
-    // "Moving" hints, as a LiDAR odometry gives them: 10 Hz, 0.3 s late. They
-    // veto it, even though each one arrives after the readings it covers.
+    // A single "moving" hint, 0.3 s late among 10 Hz "static" ones: readings wait
+    // for it, so no accepted window spans it (it holds until the next hint).
     {
         ImuBiasTracker tr;
         SimImu         imu;
-        imu.gyro_noise       = 0.001;
-        std::size_t        n = 0;
-        std::deque<double> pendingHints;
-        for (int i = 0; i < 1000; i++)
+        const double   tMoving = imu.t + 5.0;
+        const auto     acc     = run_with_late_hints(tr, imu, 10.0, 0.3, tMoving);
+        ASSERT_GE_(acc.size(), 6U);
+        for (const auto& [t0, t1] : acc)
         {
-            const auto o = imu.sample(0.005);
-            if (i % 10 == 0)
-            {
-                pendingHints.push_back(imu.t);
-            }
-            n += tr.add(o) ? 1 : 0;
-            while (!pendingHints.empty() && imu.t - pendingHints.front() >= 0.3)
-            {
-                n += tr.add_motion_hint(pendingHints.front(), false).size();
-                pendingHints.pop_front();
-            }
+            ASSERT_(t1 < tMoving || t0 > tMoving + 0.1 - 1e-6);
         }
-        ASSERT_EQUAL_(n, 0U);
-
-        // Then it stops, with late "static" hints: updates resume.
-        for (int i = 0; i < 300; i++)
+        // Without waiting for hints, a window does span it:
+        ImuBiasTracker tr2;
+        SimImu         imu2;
+        tr2.parameters.max_hint_latency = 0;
+        const auto acc2                 = run_with_late_hints(tr2, imu2, 10.0, 0.3, tMoving);
+        bool       spans                = false;
+        for (const auto& [t0, t1] : acc2)
         {
-            const auto o = standing(imu);
-            if (i % 10 == 0)
-            {
-                pendingHints.push_back(imu.t);
-            }
-            n += tr.add(o) ? 1 : 0;
-            while (!pendingHints.empty() && imu.t - pendingHints.front() >= 0.3)
-            {
-                n += tr.add_motion_hint(pendingHints.front(), true).size();
-                pendingHints.pop_front();
-            }
+            spans = spans || (t0 < tMoving && t1 > tMoving);
         }
-        ASSERT_GT_(n, 0U);
-        const auto e = *tr.estimate(imu.label);
-        ASSERT_LT_(norm3(e.bias_gyro - imu.bias_gyro), 1e-3);
+        ASSERT_(spans);
+    }
 
-        // If the hints stop, readings are processed anyway after max_hint_latency:
-        ASSERT_GT_(feed(tr, imu, 3.0, standing), 0U);
+    // Two hints at the same time: "moving" wins.
+    {
+        ImuBiasTracker tr;
+        SimImu         imu;
+        tr.parameters.max_hint_latency = 0;
+        tr.add_motion_hint(imu.t + 0.5, true);
+        tr.add_motion_hint(imu.t + 0.5, false);
+        ASSERT_EQUAL_(feed(tr, imu, 1.4, standing), 0U);
     }
 
     // A single "moving" hint just after an accepted window holds for
@@ -302,11 +367,20 @@ void test_slow_motion_and_late_hints()
             {
                 tr.add_motion_hint(imu.t, true);
             }
-            n += tr.add(o) ? 1 : 0;
+            n += tr.add(o);
         }
         ASSERT_GE_(n, 2U);
     }
-    std::cout << "slow motion: taken as bias without hints, rejected with late hints\n";
+
+    // Hints stalled at the end of a dataset: flush() processes the waiting readings.
+    {
+        ImuBiasTracker tr;
+        SimImu         imu;
+        tr.add_motion_hint(imu.t, true);
+        ASSERT_EQUAL_(feed(tr, imu, 1.4, standing), 0U);
+        ASSERT_EQUAL_(tr.flush().size(), 1U);
+    }
+    std::cout << "motion hints: late, simultaneous, held, required and stalled ones\n";
 }
 
 // ---------------------------------------------------------------------------
@@ -370,10 +444,29 @@ void test_stops_at_different_tilts()
     const auto e = *tr.estimate(imu.label);
     for (int i = 0; i < 3; i++)
     {
-        ASSERT_LT_(std::abs(e.bias_acc[i] - imu.bias_acc[i]), 0.05);
+        ASSERT_LT_(std::abs(e.bias_acc[i] - imu.bias_acc[i]), 0.01);
         ASSERT_LT_(std::sqrt(e.cov_acc(i, i)), 0.05);
     }
     std::cout << "tilts: full accel bias within " << norm3(e.bias_acc - imu.bias_acc) << " m/s^2\n";
+}
+
+// ---------------------------------------------------------------------------
+void test_floors_hold_along_gravity()
+{
+    // After a long stop on a slope, the accelerometer bias along gravity is not
+    // reported as more certain than the floor (errors that do not average out).
+    ImuBiasTracker tr;
+    SimImu         imu;
+    imu.mounting =
+        mrpt::poses::CPose3D::FromYawPitchRoll(0, mrpt::DEG2RAD(10.0), mrpt::DEG2RAD(5.0));
+    feed(tr, imu, 600.0, standing);
+    const auto            e = *tr.estimate(imu.label);
+    const Eigen::Vector3d u = gravity_dir(imu);
+    ASSERT_GE_(std::sqrt(u.dot(e.cov_acc.asEigen() * u)), 0.999 * tr.parameters.bias_acc_min_sigma);
+    const Eigen::Vector3d z = Eigen::Vector3d::UnitZ();
+    ASSERT_GE_(
+        std::sqrt(z.dot(e.cov_gyro.asEigen() * z)), 0.999 * tr.parameters.bias_gyro_min_sigma);
+    std::cout << "floors: hold along gravity\n";
 }
 
 // ---------------------------------------------------------------------------
@@ -391,7 +484,7 @@ void test_invalid_and_unordered_readings()
             {
                 o.set(mrpt::obs::IMU_Y_ACC, std::numeric_limits<double>::quiet_NaN());
             }
-            n += tr.add(o) ? 1 : 0;
+            n += tr.add(o);
         }
         ASSERT_GE_(n, 4U);
         const auto e = *tr.estimate(imu.label);
@@ -406,21 +499,71 @@ void test_invalid_and_unordered_readings()
             gravity_dir(imu).dot(Eigen::Vector3d(imu.bias_acc.x, imu.bias_acc.y, imu.bias_acc.z));
         ASSERT_LT_(std::abs(estU - trueU), 0.02);
     }
-    // Duplicated readings (e.g. re-sent by a driver) are dropped:
+    // Garbage values (NaN or absurd gyro, absurd accelerometer, no time stamp) are
+    // ignored: the result is the same as without them.
     {
-        ImuBiasTracker tr;
-        SimImu         imu;
-        std::size_t    n = 0;
-        for (int i = 0; i < 500; i++)
+        auto run = [](bool withGarbage)
         {
-            const auto o = standing(imu);
-            n += tr.add(o) ? 1 : 0;
-            if (i % 10 == 0)
+            ImuBiasTracker tr;
+            SimImu         imu;
+            for (int i = 0; i < 500; i++)
             {
-                n += tr.add(o) ? 1 : 0;
+                const auto o = standing(imu);
+                tr.add(o);
+                if (withGarbage && i % 50 == 0)
+                {
+                    auto bad = o;
+                    bad.timestamp += std::chrono::milliseconds(1);
+                    bad.set(mrpt::obs::IMU_WZ, (i % 100 == 0) ? 1e200 : std::nan(""));
+                    tr.add(bad);
+                    auto noTime      = o;
+                    noTime.timestamp = mrpt::Clock::time_point();
+                    tr.add(noTime);
+                }
             }
-        }
-        ASSERT_GE_(n, 4U);
+            // One absurd accelerometer reading, then a stop:
+            auto o = standing(imu);
+            if (withGarbage)
+            {
+                o.set(mrpt::obs::IMU_Z_ACC, 3e38);
+            }
+            tr.add(o);
+            const auto n = feed(tr, imu, 3.0, standing);
+            return std::make_pair(n, *tr.estimate(imu.label));
+        };
+        const auto [nClean, eClean] = run(false);
+        const auto [nBad, eBad]     = run(true);
+        ASSERT_GE_(nBad, 2U);
+        ASSERT_EQUAL_(nBad, nClean);
+        ASSERT_LT_(norm3(eBad.bias_gyro - eClean.bias_gyro), 1e-6);
+        ASSERT_(std::isfinite(eBad.cov_gyro(2, 2)));
+        ASSERT_LT_(std::sqrt(eBad.cov_gyro(2, 2)), 1e-3);
+    }
+    // Duplicated and slightly older readings (e.g. re-sent by a driver) are
+    // dropped: the same result as without them.
+    {
+        auto run = [](bool withRepeats)
+        {
+            ImuBiasTracker tr;
+            SimImu         imu;
+            for (int i = 0; i < 500; i++)
+            {
+                const auto o = standing(imu);
+                tr.add(o);
+                if (withRepeats && i % 10 == 0)
+                {
+                    tr.add(o);
+                    auto older = o;
+                    older.timestamp -= std::chrono::milliseconds(5);
+                    tr.add(older);
+                }
+            }
+            return *tr.estimate("imu");
+        };
+        const auto eA = run(false);
+        const auto eB = run(true);
+        ASSERT_EQUAL_(eA.standstill_updates, eB.standstill_updates);
+        ASSERT_EQUAL_(eA.bias_gyro.z, eB.bias_gyro.z);
     }
     // A jump back in time (a replayed dataset): the IMU restarts, keeping its bias.
     {
@@ -432,6 +575,7 @@ void test_invalid_and_unordered_readings()
         const auto n     = feed(tr, imu, 3.0, standing);
         const auto after = *tr.estimate(imu.label);
         ASSERT_GE_(n, 2U);
+        ASSERT_EQUAL_(after.standstill_updates, before.standstill_updates + n);
         ASSERT_LT_(after.stamp, before.stamp);
         ASSERT_LT_(norm3(after.bias_gyro - imu.bias_gyro), 4e-4);
     }
@@ -444,6 +588,17 @@ void test_invalid_and_unordered_readings()
         const auto e = *tr.estimate(imu.label);
         ASSERT_LT_(norm3(e.bias_gyro - imu.bias_gyro), 5e-4);
         ASSERT_EQUAL_(norm3(e.bias_acc), 0.0);
+    }
+    // An external measurement for an IMU before its first reading does not block
+    // its readings:
+    {
+        ImuBiasTracker              tr;
+        SimImu                      imu;
+        mrpt::math::CMatrixDouble33 R;
+        R.setDiagonal(1e-4);
+        tr.add_measurement(
+            imu.label, imu.t + 0.9, std::make_pair(TVector3D(0, 0, 0), R), std::nullopt);
+        ASSERT_EQUAL_(feed(tr, imu, 1.5, standing), 1U);
     }
     std::cout << "invalid, duplicated and unordered readings: handled\n";
 }
@@ -568,10 +723,12 @@ int main()
         test_driving_does_not_update();
         test_stop_and_go_tracks_drift();
         test_large_bias_accepted();
+        test_bias_changes_are_reacquired();
         test_slow_motion_and_late_hints();
         test_short_stops_at_random_phase();
         test_covariance_consistency();
         test_stops_at_different_tilts();
+        test_floors_hold_along_gravity();
         test_invalid_and_unordered_readings();
         test_external_measurements();
         test_gaps_restart_the_window();

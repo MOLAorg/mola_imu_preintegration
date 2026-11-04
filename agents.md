@@ -33,13 +33,16 @@ Everything is GTSAM-free: MRPT Lie algebra only.
   into a preintegrator without a staticness gate.
 - `ImuBiasTracker`: per-sensor-label gyro and accel bias, as random walks (a Kalman filter each),
   in the IMU SENSOR frame. Updated by standstill windows it detects itself (sliding window with
-  running sums: gyro/accel RMS about their means, gyro mean within max(abs gate, k sigma) of the
-  current bias, |accel| close to g; at rest only the accel bias component ALONG gravity is
-  observable, relative to `gravity`) and by external measurements (sensor frame; older ones are
-  de-weighted by the random walk). Smooth low-vibration motion (slow turns, wide curves) passes
-  as standstill from the IMU alone: `add_motion_hint()` vetoes windows; hints hold until the next
-  one, and once any hint arrives readings wait for hints (up to `max_hint_latency`), so late
-  LiDAR odometry hints still count. Posterior sigma floors; Earth rotation ends up in the bias.
+  running sums: gyro/accel RMS about their means, |accel| close to g, gyro mean within
+  max(abs gate, k sigma) of the propagated estimate; at rest only the accel bias ALONG gravity is
+  observable, relative to `gravity_magnitude`) and by external measurements (sensor frame; older
+  ones de-weighted by the random walk). Offsets beyond the gate under a "static" hint, or
+  consistent for `gyro_reacquire_time`, mean the bias changed: covariance reset to the prior.
+  Smooth low-vibration motion (slow turns, wide curves) passes as standstill from the IMU alone:
+  `add_motion_hint()` vetoes windows; hints are point events holding forward (hint both ends of
+  an increment); once any hint arrives readings wait for hints (up to `max_hint_latency`;
+  `flush()` at the end), so late LiDAR odometry hints still count. Eigenvalue floors on the
+  posterior; covariance growth capped at the prior; garbage readings and stamps ignored.
 - `LocalVelocityBuffer` — time-keyed ring of v/a/ω/orientation; YAML (de)serialize; window queries.
 - `trajectory_from_buffer()` — dead-reckons an SE(3) trajectory around `t=0` from one orientation
   anchor + one velocity anchor + IMU ω/accel. Specific force → coordinate accel via
