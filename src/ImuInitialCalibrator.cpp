@@ -89,10 +89,6 @@ void ImuInitialCalibrator::add(const mrpt::obs::CObservationIMU::ConstPtr& obs)
         const auto qy = bodyImu.get(mrpt::obs::IMU_ORI_QUAT_Y);
         const auto qz = bodyImu.get(mrpt::obs::IMU_ORI_QUAT_Z);
 
-        const bool isPlaceholderIdentity = std::abs(qx) < 1e-6 && std::abs(qy) < 1e-6 &&
-                                           std::abs(qz) < 1e-6 &&
-                                           std::abs(std::abs(qw) - 1.0) < 1e-6;
-
         // Some drivers that do not estimate attitude at all (e.g. a raw MEMS
         // IMU with no onboard AHRS) leave the orientation quaternion at all
         // zeros instead of a placeholder identity. That is not a rotation
@@ -106,6 +102,13 @@ void ImuInitialCalibrator::add(const mrpt::obs::CObservationIMU::ConstPtr& obs)
             mrpt::square(qw) + mrpt::square(qx) + mrpt::square(qy) + mrpt::square(qz);
         const bool isDegenerate = !(std::abs(qNormSq - 1.0) <= 0.1);
 
+        // The placeholder test is on the normalized quaternion, so a slightly
+        // scaled identity is a placeholder too:
+        const double qn                    = isDegenerate ? 1.0 : std::sqrt(qNormSq);
+        const bool   isPlaceholderIdentity = std::abs(qx / qn) < 1e-6 && std::abs(qy / qn) < 1e-6 &&
+                                           std::abs(qz / qn) < 1e-6 &&
+                                           std::abs(std::abs(qw / qn) - 1.0) < 1e-6;
+
         if (isPlaceholderIdentity || isDegenerate)
         {
             bodyImu.dataIsPresent.at(mrpt::obs::IMU_ORI_QUAT_W) = false;
@@ -117,9 +120,8 @@ void ImuInitialCalibrator::add(const mrpt::obs::CObservationIMU::ConstPtr& obs)
         {
             // obs->sensorPose still holds R_vehicle_sensor (process() reset the
             // sensor pose on the returned COPY only, not on the input obs).
-            // Normalize first: CQuaternion requires a much tighter unit norm
-            // than the tolerance accepted above.
-            const double                      qn = std::sqrt(qNormSq);
+            // Normalized: CQuaternion requires a much tighter unit norm than
+            // the tolerance accepted above.
             const mrpt::math::CMatrixDouble33 R_world_sensor =
                 mrpt::poses::CPose3D::FromQuaternion(
                     mrpt::math::CQuaternionDouble(qw / qn, qx / qn, qy / qn, qz / qn))
