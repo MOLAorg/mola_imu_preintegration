@@ -100,11 +100,12 @@ void simulate_and_populate_buffer(
             }
             if (point.v)
             {
-                // Add noise to linear velocity
+                // Add noise to linear velocity. The buffer expects it in the
+                // body frame, while the ground truth is in the frame of t=0:
                 TVector3D v_n;
                 rnd.drawGaussian1DVector(v_n, 0, NOISE_STD_LIN_VEL);
 
-                TVector3D v_noisy = *point.v + v_n;
+                TVector3D v_noisy = point.pose.inverseRotateVector(*point.v) + v_n;
                 buffer.add_linear_velocity(time, v_noisy);
             }
         }

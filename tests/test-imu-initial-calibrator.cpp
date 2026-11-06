@@ -985,6 +985,81 @@ void TestImuInitialCalibrator()
         std::cout << "Test 18: averaging is restricted to the window OK.\n";
     }
 
+    // 19. Rotated mount + a slightly non-unit quaternion, within the accepted
+    //     norm tolerance but beyond the much tighter one CQuaternion asserts.
+    //     It must be normalized, not throw.
+    {
+        ImuInitialCalibrator calibrator;
+        calibrator.parameters.required_samples = 3;
+        calibrator.parameters.max_samples_age  = 100.0;
+        const double g                         = calibrator.parameters.gravity;
+
+        const auto a_body   = vehicleAtt.inverseRotateVector({0.0, 0.0, g});
+        const auto a_sensor = mount.inverseRotateVector(a_body);
+
+        mrpt::math::CQuaternionDouble qWorldSensor;
+        (vehicleAtt + mount).getAsQuaternion(qWorldSensor);
+        const double scale = std::sqrt(0.97);  // |q|^2 = 0.97
+
+        for (int i = 0; i < 5; ++i)
+        {
+            auto obs = create_imu_obs(
+                140.0 + static_cast<double>(i), a_sensor, {0.0, 0.0, 0.0}, std::nullopt, mount);
+            obs->set(mrpt::obs::IMU_ORI_QUAT_W, qWorldSensor.r() * scale);
+            obs->set(mrpt::obs::IMU_ORI_QUAT_X, qWorldSensor.x() * scale);
+            obs->set(mrpt::obs::IMU_ORI_QUAT_Y, qWorldSensor.y() * scale);
+            obs->set(mrpt::obs::IMU_ORI_QUAT_Z, qWorldSensor.z() * scale);
+
+            calibrator.add(obs);
+        }
+
+        auto calib = calibrator.getCalibration();
+        ASSERT_(calib.has_value());
+
+        const double tol = 1e-5;
+        MRPT_ASSERT_NEAR_MSG_(
+            calib->pitch, tiltPitch, tol, "pitch (rotated mount, non-unit orientation)");
+        MRPT_ASSERT_NEAR_MSG_(
+            calib->roll, tiltRoll, tol, "roll (rotated mount, non-unit orientation)");
+
+        std::cout << "Test 19: rotated mount + non-unit orientation OK.\n";
+    }
+
+    // 20. Rotated mount + a slightly SCALED placeholder identity: it is still a
+    //     placeholder, not a level attitude, so gravity must do the leveling.
+    {
+        ImuInitialCalibrator calibrator;
+        calibrator.parameters.required_samples = 3;
+        calibrator.parameters.max_samples_age  = 100.0;
+        const double g                         = calibrator.parameters.gravity;
+
+        const auto a_body   = vehicleAtt.inverseRotateVector({0.0, 0.0, g});
+        const auto a_sensor = mount.inverseRotateVector(a_body);
+
+        for (int i = 0; i < 5; ++i)
+        {
+            auto obs = create_imu_obs(
+                150.0 + static_cast<double>(i), a_sensor, {0.0, 0.0, 0.0}, std::nullopt, mount);
+            obs->set(mrpt::obs::IMU_ORI_QUAT_W, std::sqrt(0.97));
+            obs->set(mrpt::obs::IMU_ORI_QUAT_X, 0.0);
+            obs->set(mrpt::obs::IMU_ORI_QUAT_Y, 0.0);
+            obs->set(mrpt::obs::IMU_ORI_QUAT_Z, 0.0);
+
+            calibrator.add(obs);
+        }
+
+        auto calib = calibrator.getCalibration();
+        ASSERT_(calib.has_value());
+
+        const double tol = 1e-5;
+        MRPT_ASSERT_NEAR_MSG_(
+            calib->pitch, tiltPitch, tol, "pitch (rotated mount, scaled placeholder)");
+        MRPT_ASSERT_NEAR_MSG_(
+            calib->roll, tiltRoll, tol, "roll (rotated mount, scaled placeholder)");
+
+        std::cout << "Test 20: rotated mount + scaled placeholder identity OK.\n";
+    }
+
     std::cout << "--- TestImuInitialCalibrator finished OK ---\n";
 }
 

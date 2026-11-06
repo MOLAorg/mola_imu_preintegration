@@ -169,7 +169,9 @@ Trajectory mola::imu::trajectory_from_buffer(
     const double stamp_first_R_ga = closest_q->first;
     t[closest_q->first].R_ga      = closest_q->second;
 
-    // 3b) and copy the closest velocity from the given samples:
+    // 3b) and copy the closest velocity from the given samples. It is in the
+    // body frame at its own stamp: it is expressed in the frame of t=0 in
+    // step 8, once the attitudes are known.
     const auto closest_v_b =
         mrpt::containers::find_closest(samples.by_type.v_b, last_sample_rel_time);
     if (!closest_v_b)
@@ -276,7 +278,11 @@ Trajectory mola::imu::trajectory_from_buffer(
             });
     }
 
-    // 8) Integrate v:
+    // 8) Integrate v, in the frame of t=0, from the velocity sample (body frame):
+    {
+        auto& p_v = t.at(stamp_first_v_b);
+        p_v.v     = p_v.pose.rotateVector(*p_v.v);
+    }
     if (use_higher_order)
     {
         execute_integration<>(
