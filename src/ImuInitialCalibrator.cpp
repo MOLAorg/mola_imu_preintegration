@@ -116,9 +116,13 @@ void ImuInitialCalibrator::add(const mrpt::obs::CObservationIMU::ConstPtr& obs)
         else
         {
             // obs->sensorPose still holds R_vehicle_sensor (process() reset the
-            // sensor pose on the returned COPY only, not on the input obs):
+            // sensor pose on the returned COPY only, not on the input obs).
+            // Normalize first: CQuaternion requires a much tighter unit norm
+            // than the tolerance accepted above.
+            const double                      qn = std::sqrt(qNormSq);
             const mrpt::math::CMatrixDouble33 R_world_sensor =
-                mrpt::poses::CPose3D::FromQuaternion(mrpt::math::CQuaternionDouble(qw, qx, qy, qz))
+                mrpt::poses::CPose3D::FromQuaternion(
+                    mrpt::math::CQuaternionDouble(qw / qn, qx / qn, qy / qn, qz / qn))
                     .getRotationMatrix();
             const mrpt::math::CMatrixDouble33 R_vehicle_sensor =
                 obs->sensorPose.getRotationMatrix();
