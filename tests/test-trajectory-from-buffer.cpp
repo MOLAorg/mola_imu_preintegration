@@ -400,6 +400,95 @@ void TrajectoryFromBuffer_InsufficientData()
     MRPT_END
 }
 
+// Test Case 7: Constant angular acceleration about a fixed axis. The yaw is then
+// exactly alpha*t^2/2, which the integration must reproduce at the ends of a
+// LiDAR sweep around the reference time.
+void TrajectoryFromBuffer_AngularAcceleration()
+{
+    MRPT_START
+
+    ImuIntegrationParams imu_params;
+    imu_params.gravity_vector = {0, 0, -9.81};
+
+    constexpr double ALPHA = 10.0;  // [rad/s^2]
+    constexpr double DT    = 0.005;  // 200 Hz
+    constexpr double TOL   = 1e-6;  // [rad]
+
+    LocalVelocityBuffer buffer;
+    buffer.set_reference_zero_time(0.0);
+    for (int k = -30; k <= 30; k++)
+    {
+        const double t = k * DT;
+        buffer.add_angular_velocity(t, {0, 0, ALPHA * t});
+        buffer.add_linear_acceleration(t, {0, 0, 9.81});
+    }
+    buffer.add_orientation(0.0, mrpt::math::CMatrixDouble33::Identity());
+    buffer.add_linear_velocity(0.0, {0, 0, 0});
+
+    const auto samples            = buffer.collect_samples_around_reference_time(0.15);
+    const auto reconstructed_traj = trajectory_from_buffer(samples, imu_params, false);
+    ASSERT_(!reconstructed_traj.empty());
+
+    for (const double t : {-0.05, 0.05})
+    {
+        const auto it = reconstructed_traj.lower_bound(t - 1e-9);
+        ASSERT_(it != reconstructed_traj.end());
+        ASSERT_NEAR_(it->first, t, 1e-9);
+        ASSERT_NEAR_(it->second.pose.yaw(), 0.5 * ALPHA * t * t, TOL);
+    }
+
+    std::cout << "✅ TrajectoryFromBuffer_AngularAcceleration passed!" << std::endl;
+
+    MRPT_END
+}
+
+// Test Case 8: as Test Case 7, with t=0 and the orientation and velocity
+// samples between IMU readings, as with real scan stamps. The gyroscope must be
+// interpolated at those nodes for the yaw to stay exact.
+void TrajectoryFromBuffer_AngularAccelerationOffGrid()
+{
+    MRPT_START
+
+    ImuIntegrationParams imu_params;
+    imu_params.gravity_vector = {0, 0, -9.81};
+
+    constexpr double ALPHA       = 10.0;  // [rad/s^2]
+    constexpr double DT          = 0.005;  // 200 Hz
+    constexpr double GRID_OFFSET = 0.3 * DT;
+    constexpr double TOL         = 1e-9;  // [rad]
+
+    LocalVelocityBuffer buffer;
+    buffer.set_reference_zero_time(0.0);
+    for (int k = -30; k <= 30; k++)
+    {
+        const double t = k * DT + GRID_OFFSET;
+        buffer.add_angular_velocity(t, {0, 0, ALPHA * t});
+        buffer.add_linear_acceleration(t, {0, 0, 9.81});
+    }
+    buffer.add_orientation(0.0123, mrpt::math::CMatrixDouble33::Identity());
+    buffer.add_linear_velocity(0.0377, {0, 0, 0});
+
+    const auto samples            = buffer.collect_samples_around_reference_time(0.15);
+    const auto reconstructed_traj = trajectory_from_buffer(samples, imu_params, false);
+    ASSERT_(!reconstructed_traj.empty());
+
+    std::size_t checked = 0;
+    for (const auto& [t, p] : reconstructed_traj)
+    {
+        if (std::abs(t) > 0.06)
+        {
+            continue;
+        }
+        ASSERT_NEAR_(p.pose.yaw(), 0.5 * ALPHA * t * t, TOL);
+        checked++;
+    }
+    ASSERT_GT_(checked, 20U);
+
+    std::cout << "✅ TrajectoryFromBuffer_AngularAccelerationOffGrid passed!" << std::endl;
+
+    MRPT_END
+}
+
 int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv)
 {
     try
@@ -410,6 +499,8 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv)
         TrajectoryFromBuffer_ConstantLinearVelocityWithRoll();
         TrajectoryFromBuffer_Spinning3D();
         TrajectoryFromBuffer_InsufficientData();
+        TrajectoryFromBuffer_AngularAcceleration();
+        TrajectoryFromBuffer_AngularAccelerationOffGrid();
         return 0;
     }
     catch (const std::exception& e)

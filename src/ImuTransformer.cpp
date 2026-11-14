@@ -26,7 +26,29 @@
 #include <mrpt/math/ops_containers.h>
 #include <mrpt/obs/CObservationIMU.h>
 
+#include <algorithm>
+#include <cmath>
+
 using namespace mola::imu;
+
+namespace
+{
+// Per-sample factor of a first-order EMA low-pass filter: a legacy fixed
+// factor if given (> 0), otherwise the one matching the cut-off frequency for
+// this time step. A non-positive cut-off disables the filter.
+double ema_alpha(const double legacy_alpha, const double cutoff_hz, const double dt)
+{
+    if (legacy_alpha > 0)
+    {
+        return std::min(legacy_alpha, 1.0);
+    }
+    if (cutoff_hz <= 0)
+    {
+        return 1.0;
+    }
+    return 1.0 - std::exp(-2.0 * M_PI * cutoff_hz * dt);
+}
+}  // namespace
 
 mrpt::obs::CObservationIMU ImuTransformer::process(const mrpt::obs::CObservationIMU& raw_imu)
 {
@@ -92,12 +114,14 @@ mrpt::obs::CObservationIMU ImuTransformer::process(const mrpt::obs::CObservation
             // EMA low-pass filter for angular acceleration:
             //   y[n] = alpha * x[n] + (1 - alpha) * y[n-1]
             // alpha close to 0: heavy smoothing; alpha = 1: no filtering.
-            const double alpha_acc = parameters.ang_acc_lpf_alpha;
+            const double alpha_acc =
+                ema_alpha(parameters.ang_acc_lpf_alpha, parameters.ang_acc_lpf_cutoff_hz, dt);
             filtered_ang_acc_ = raw_ang_acc * alpha_acc + filtered_ang_acc_ * (1.0 - alpha_acc);
 
             // EMA low-pass filter for angular velocity (used only in the
             // centripetal lever-arm term; the output channels stay unfiltered):
-            const double alpha_vel = parameters.ang_vel_lpf_alpha;
+            const double alpha_vel =
+                ema_alpha(parameters.ang_vel_lpf_alpha, parameters.ang_vel_lpf_cutoff_hz, dt);
             filtered_ang_vel_ = ang_vel_body * alpha_vel + filtered_ang_vel_ * (1.0 - alpha_vel);
 
             last_ang_vel_body_ = ang_vel_body;
