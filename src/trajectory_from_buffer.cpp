@@ -25,6 +25,7 @@
 #include <mrpt/poses/Lie/SO.h>
 
 #include <Eigen/Dense>
+#include <iterator>
 #include <type_traits>
 
 using namespace mola::imu;
@@ -67,6 +68,25 @@ void execute_integration(
         update(p_prev, p_this, dt);
     }
 };
+
+// Gyroscope reading at `stamp`, linearly interpolated between the readings
+// around it, so the trapezoidal rule stays exact at nodes that are not IMU
+// stamps. Outside the span of the readings, the closest one is used.
+AngularVelocity gyro_at(const std::map<TimeStamp, AngularVelocity>& w_b, const TimeStamp stamp)
+{
+    const auto hi = w_b.lower_bound(stamp);
+    if (hi != w_b.end() && hi->first == stamp)
+    {
+        return hi->second;
+    }
+    if (hi == w_b.end() || hi == w_b.begin())
+    {
+        return mrpt::containers::find_closest(w_b, stamp)->second;
+    }
+    const auto   lo = std::prev(hi);
+    const double f  = (stamp - lo->first) / (hi->first - lo->first);
+    return lo->second * (1.0 - f) + hi->second * f;
+}
 
 }  // namespace
 
@@ -152,8 +172,12 @@ Trajectory mola::imu::trajectory_from_buffer(
     {
         return {};
     }
-    t[0].w_b = closest_w_at_0->second - bias_gyro;
-    t[0].a_b = closest_a_at_0->second - bias_acc;
+    // Keep an accelerometer reading exactly at t=0 (find_closest() skips an
+    // exact match):
+    if (!t[0].a_b.has_value())
+    {
+        t[0].a_b = closest_a_at_0->second - bias_acc;
+    }
 
     // 3) Copy the latest gravity-aligned hints on global orientations:
     if (samples.by_time.empty())
@@ -181,12 +205,13 @@ Trajectory mola::imu::trajectory_from_buffer(
     const double stamp_first_v_b = closest_v_b->first;
     t[closest_v_b->first].v      = closest_v_b->second;
 
-    // and assign the closest IMU reading to all frames:
+    // and assign the IMU readings to all frames (gyroscope interpolated,
+    // accelerometer from the closest reading):
     for (auto& [stamp, tp] : t)
     {
         if (!tp.w_b.has_value())
         {
-            tp.w_b = mrpt::containers::find_closest(samples.by_type.w_b, stamp)->second - bias_gyro;
+            tp.w_b = gyro_at(samples.by_type.w_b, stamp) - bias_gyro;
         }
         if (!tp.a_b.has_value())
         {
@@ -234,7 +259,11 @@ Trajectory mola::imu::trajectory_from_buffer(
             [](const TrajectoryPoint& p0, TrajectoryPoint& p1, double dt)
             {
                 ASSERT_(p0.w_b.has_value());
-                const mrpt::math::TVector3D w = *p0.w_b;
+                ASSERT_(p1.w_b.has_value());
+                // Average of the readings at both ends of the step (trapezoidal
+                // rule): taking only the one nearer to t=0 lags the rotation by
+                // half a sample under angular acceleration.
+                const mrpt::math::TVector3D w = (*p0.w_b + *p1.w_b) * 0.5;
 
                 p1.pose.setRotationMatrix(
                     p0.pose.getRotationMatrix() *

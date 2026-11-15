@@ -49,78 +49,43 @@ class ImuTransformer
 
     struct Parameters
     {
-        /** Smoothing factor for the angular-acceleration EMA low-pass filter.
+        /** Cut-off frequency [Hz] of the low-pass filter applied to the angular
+         * acceleration, which is estimated by finite differences of the gyroscope
+         * readings and used in the tangential lever-arm term α×t.
          *
-         * Range (0, 1]:
-         *   - Values close to 1: almost no filtering (raw finite difference).
-         *   - Values close to 0: heavy smoothing (very slow response).
+         * The filter is a first-order exponential moving average whose
+         * per-sample factor follows the actual time step of each reading,
+         * `alpha = 1 - exp(-2·π·f_c·dt)`, so its response does not depend on the
+         * IMU rate. A value <= 0 disables the filter (raw finite differences).
          *
-         * The exact -3 dB cut-off frequency of the EMA filter is:
-         *
-         * \verbatim
-         *   f_c = -fs / (2·π) · ln(1 - alpha)
-         * \endverbatim
-         *
-         * Approximate cut-off frequencies for common IMU rates:
-         *
-         * \verbatim
-         *   alpha |  fs = 100 Hz  |  fs = 400 Hz  |  fs = 600 Hz
-         *   ------+--------------+---------------+--------------
-         *   0.02  |    0.32 Hz   |    1.29 Hz    |    1.93 Hz  (default)
-         *   0.05  |    0.82 Hz   |    3.27 Hz    |    4.90 Hz
-         *   0.10  |    1.68 Hz   |    6.71 Hz    |   10.06 Hz
-         *   0.20  |    3.55 Hz   |   14.21 Hz    |   21.31 Hz
-         *   0.30  |    5.68 Hz   |   22.71 Hz    |   34.06 Hz
-         * \endverbatim
-         *
-         * The default (0.02) targets a cut-off of ~0.32 Hz at 100 Hz, ~1.29 Hz at
-         * 400 Hz, and ~1.93 Hz at 600 Hz.  This rejects amplified gyro noise from
-         * the finite-difference step while remaining responsive to genuine
-         * angular-acceleration transients at typical robot motion bandwidths.
-         * Raise alpha if the lever-arm correction feels sluggish; lower it if
-         * accelerometer readings are still noisy after transformation.
+         * The default (20 Hz) keeps most of the true angular acceleration of
+         * hand-held or legged motion, which a cut-off around 1 Hz removes.
          */
-        double ang_acc_lpf_alpha = 0.02;
+        double ang_acc_lpf_cutoff_hz = 20.0;
 
-        /** Smoothing factor for the angular-velocity EMA low-pass filter used
-         * in the centripetal lever-arm correction term ω×(ω×t).
+        /** Cut-off frequency [Hz] of the low-pass filter applied to the copy of
+         * the angular velocity used in the centripetal lever-arm term ω×(ω×t).
+         * Same filter type and conventions as `ang_acc_lpf_cutoff_hz`.
          *
-         * Range (0, 1]:
-         *   - Values close to 1: almost no filtering (raw rotated gyro reading).
-         *   - Values close to 0: heavy smoothing (very slow response).
-         *
-         * Important: this filter is applied only to the ω copy used internally
-         * in the lever-arm cross-product.  The angular-velocity channels written
-         * to the output observation (IMU_WX/WY/WZ) are always the unfiltered,
-         * rotated readings so that downstream consumers (e.g. preintegration)
-         * receive the full-bandwidth signal.
-         *
-         * The exact -3 dB cut-off frequency of the EMA filter is:
-         *
-         * \verbatim
-         *   f_c = -fs / (2·π) · ln(1 - alpha)
-         * \endverbatim
-         *
-         * Approximate cut-off frequencies for common IMU rates:
-         *
-         * \verbatim
-         *   alpha |  fs = 100 Hz  |  fs = 400 Hz  |  fs = 600 Hz
-         *   ------+--------------+---------------+--------------
-         *   0.02  |    0.32 Hz   |    1.29 Hz    |    1.93 Hz
-         *   0.05  |    0.82 Hz   |    3.27 Hz    |    4.90 Hz
-         *   0.10  |    1.68 Hz   |    6.71 Hz    |   10.06 Hz
-         *   0.20  |    3.55 Hz   |   14.21 Hz    |   21.31 Hz
-         *   0.30  |    5.68 Hz   |   22.71 Hz    |   34.06 Hz   (default)
-         * \endverbatim
-         *
-         * A higher default than ang_acc_lpf_alpha is appropriate here because
-         * ω is a direct gyro measurement (not a finite difference), so it
-         * carries far less amplified noise.  The default (0.30) gives ~5.7 Hz
-         * at 100 Hz and ~22.7 Hz at 400 Hz, which tracks real angular-velocity
-         * transients faithfully while still attenuating high-frequency noise
-         * in the quadratic centripetal term.
+         * The angular-velocity channels written to the output observation
+         * (IMU_WX/WY/WZ) are always the unfiltered, rotated readings.
          */
-        double ang_vel_lpf_alpha = 0.3;
+        double ang_vel_lpf_cutoff_hz = 20.0;
+
+        /** Legacy per-sample smoothing factor of the angular-acceleration
+         * filter, in (0, 1]. If > 0, it is used for every sample instead of
+         * `ang_acc_lpf_cutoff_hz`, as in earlier versions (values above 1 are
+         * clamped to 1); its cut-off then depends on the IMU rate:
+         * `f_c = -fs/(2·π)·ln(1 - alpha)`.
+         * Default: 0, meaning unset (use the cut-off frequency).
+         */
+        double ang_acc_lpf_alpha = 0;
+
+        /** Legacy per-sample smoothing factor of the angular-velocity filter,
+         * with the same conventions as `ang_acc_lpf_alpha`.
+         * Default: 0 (unset: use `ang_vel_lpf_cutoff_hz`).
+         */
+        double ang_vel_lpf_alpha = 0;
     };
 
     Parameters parameters;

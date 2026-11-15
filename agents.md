@@ -18,7 +18,9 @@ Everything is GTSAM-free: MRPT Lie algebra only.
   `ΔR ← ΔR · Exp((ω − b_g)·dt)`. Bias subtracted in IMU frame, then rotated to body via `sensor_pose`.
 - `ImuTransformer` — moves raw readings to `base_link`: rotates ω/accel and applies the rigid-body
   lever arm `a_body = R·a_imu − α×t − ω×(ω×t)`. Stateful (one instance per IMU); uses EMA low-pass
-  filters for α (finite-diff) and the centripetal ω. Output `IMU_W*` channels stay full-bandwidth.
+  filters for α (finite-diff) and the centripetal ω, set by cut-off frequency (20 Hz default; per-sample
+  factor from each reading's dt), or by the legacy per-sample `*_lpf_alpha` if > 0. Output `IMU_W*`
+  channels stay full-bandwidth.
 - `ImuAverager` — decimates a high-rate stream to one reading per period, the **average** of the
   period (ω and accel over finite readings; quaternion from the newest; stamp = batch mean). Keeping
   one raw reading instead aliases motor/propeller vibration into whatever consumes it. Apply
@@ -49,7 +51,9 @@ Everything is GTSAM-free: MRPT Lie algebra only.
 - `LocalVelocityBuffer` — time-keyed ring of v/a/ω/orientation; YAML (de)serialize; window queries.
 - `trajectory_from_buffer()` — dead-reckons an SE(3) trajectory around `t=0` from one orientation
   anchor + one velocity anchor + IMU ω/accel. Specific force → coordinate accel via
-  `ac_b = a_b + Rᵀ_ga·g_world`. `use_higher_order` adds jerk/α Taylor terms.
+  `ac_b = a_b + Rᵀ_ga·g_world`. Default rotation steps use the mean of the step's two gyro
+  readings (trapezoidal), with ω interpolated at nodes between IMU stamps (t=0, anchors).
+  `use_higher_order` uses jerk/α Taylor terms instead.
 
 ## Conventions / gotchas
 - Frames: angular/linear quantities in body (`base_link`) frame; orientations are global,
