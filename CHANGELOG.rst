@@ -2,6 +2,15 @@
 Changelog for package mola_imu_preintegration
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+Forthcoming
+-----------
+* New ImuBiasTracker: per-IMU gyroscope and accelerometer bias tracking from standstills, motion hints and external measurements.
+* IMU de-skew: trapezoidal rotation integration; lever-arm low-pass filters set by cutoff frequency (ang_vel_lpf_cutoff_hz, ang_acc_lpf_cutoff_hz), so they adapt to the IMU rate.
+* ImuTransformer: output the acceleration in m/s^2 for drivers that publish it in units of g (detected automatically, or set with accel_scale).
+* ImuInitialCalibrator: normalize slightly non-unit orientation quaternions instead of throwing.
+* trajectory_from_buffer(): rotate the body-frame velocity sample into the frame of t=0.
+* Contributors: Jose Luis Blanco-Claraco, R Kent James
+
 3.0.1 (2026-10-19)
 ------------------
 * Add ImuAverager: decimate a high-rate IMU stream by averaging each period (`#17 <https://github.com/MOLAorg/mola_imu_preintegration/issues/17>`_)
