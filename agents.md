@@ -20,7 +20,8 @@ Everything is GTSAM-free: MRPT Lie algebra only.
   lever arm `a_body = R·a_imu − α×t − ω×(ω×t)`. Stateful (one instance per IMU); uses EMA low-pass
   filters for α (finite-diff) and the centripetal ω, set by cut-off frequency (20 Hz default; per-sample
   factor from each reading's dt), or by the legacy per-sample `*_lpf_alpha` if > 0. Output `IMU_W*`
-  channels stay full-bandwidth.
+  channels stay full-bandwidth. Accel is converted to m/s² by `accel_scale` (0 = auto: units of g if
+  the mean norm of the valid readings over their first 0.5 s is below 3, then frozen).
 - `ImuAverager` — decimates a high-rate stream to one reading per period, the **average** of the
   period (ω and accel over finite readings; quaternion from the newest; stamp = batch mean). Keeping
   one raw reading instead aliases motor/propeller vibration into whatever consumes it. Apply

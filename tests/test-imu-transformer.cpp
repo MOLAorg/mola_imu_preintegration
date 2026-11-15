@@ -381,6 +381,81 @@ void test_ang_vel_cutoff()
     std::cout << "✅ test_ang_vel_cutoff passed!" << std::endl;
 }
 
+// 11) Accelerometer units: readings in units of g are output in m/s², those in
+//     m/s² unchanged, from the first reading on. The decision ignores readings
+//     without information (zeros, NaN), is kept after its first 0.5 s, and an
+//     explicit accel_scale is applied as is.
+void test_accel_units()
+{
+    const auto       sensorPose = mrpt::poses::CPose3D::Identity();
+    const TVector3D  w          = {0.0, 0.0, 0.0};
+    constexpr double DT         = 0.005;  // 200 Hz
+
+    // Feeds `n` readings of acc_z from reading index `i0`, and checks that every
+    // output equals `expected`:
+    const auto feed =
+        [&](ImuTransformer& tf, int i0, int n, double acc_z, double expected, const char* what)
+    {
+        for (int i = i0; i < i0 + n; ++i)
+        {
+            const auto out =
+                tf.process(*make_imu(100.0 + DT * i, {0.0, 0.0, acc_z}, w, sensorPose));
+            // Written so that a NaN output fails too:
+            if (!(std::abs(get_acc(out).z - expected) <= 1e-9))
+            {
+                THROW_EXCEPTION_FMT(
+                    "%s: reading %d gave %f, expected %f", what, i, get_acc(out).z, expected);
+            }
+        }
+    };
+
+    // Units of g, then frozen: a later reading of 9.81 (in g) is still scaled.
+    ImuTransformer tf_g;
+    feed(tf_g, 0, 120, 1.0, 9.80665, "units of g");
+    feed(tf_g, 120, 10, 9.81, 9.81 * 9.80665, "units of g, frozen");
+
+    // A reading after a gap, past the span, does not change the decision:
+    ImuTransformer tf_gap;
+    feed(tf_gap, 0, 1, 1.0, 9.80665, "units of g, one reading");
+    feed(tf_gap, 200, 1, 5.0, 5.0 * 9.80665, "units of g, after a gap");
+
+    // m/s², then frozen: a later reading of 1.0 is not scaled.
+    ImuTransformer tf_si;
+    feed(tf_si, 0, 120, 9.81, 9.81, "m/s^2");
+    feed(tf_si, 120, 10, 1.0, 1.0, "m/s^2, frozen");
+
+    // Zeros while a driver starts do not count:
+    ImuTransformer tf_zeros;
+    feed(tf_zeros, 0, 80, 0.0, 0.0, "leading zeros");
+    feed(tf_zeros, 80, 120, 9.81, 9.81, "m/s^2 after zeros");
+
+    // Nor does a non-finite reading:
+    ImuTransformer tf_nan;
+    tf_nan.process(*make_imu(100.0, {0.0, 0.0, std::nan("")}, w, sensorPose));
+    feed(tf_nan, 1, 120, 1.0, 9.80665, "units of g after NaN");
+
+    // An explicit scale:
+    ImuTransformer tf_fixed;
+    tf_fixed.parameters.accel_scale = 1.0;
+    feed(tf_fixed, 0, 10, 1.0, 1.0, "explicit scale");
+
+    // A negative one is rejected:
+    ImuTransformer tf_neg;
+    tf_neg.parameters.accel_scale = -1.0;
+    bool thrown                   = false;
+    try
+    {
+        tf_neg.process(*make_imu(100.0, {0.0, 0.0, 9.81}, w, sensorPose));
+    }
+    catch (const std::exception&)
+    {
+        thrown = true;
+    }
+    ASSERT_(thrown);
+
+    std::cout << "✅ test_accel_units passed!" << std::endl;
+}
+
 }  // namespace
 
 int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv)
@@ -397,6 +472,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv)
         test_cutoff_is_rate_independent();
         test_legacy_alpha_overrides_cutoff();
         test_ang_vel_cutoff();
+        test_accel_units();
         std::cout << "All ImuTransformer tests passed." << std::endl;
         return 0;
     }
