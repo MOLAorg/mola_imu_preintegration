@@ -400,7 +400,8 @@ void test_accel_units()
         {
             const auto out =
                 tf.process(*make_imu(100.0 + DT * i, {0.0, 0.0, acc_z}, w, sensorPose));
-            if (std::abs(get_acc(out).z - expected) > 1e-9)
+            // Written so that a NaN output fails too:
+            if (!(std::abs(get_acc(out).z - expected) <= 1e-9))
             {
                 THROW_EXCEPTION_FMT(
                     "%s: reading %d gave %f, expected %f", what, i, get_acc(out).z, expected);
@@ -412,6 +413,11 @@ void test_accel_units()
     ImuTransformer tf_g;
     feed(tf_g, 0, 120, 1.0, 9.80665, "units of g");
     feed(tf_g, 120, 10, 9.81, 9.81 * 9.80665, "units of g, frozen");
+
+    // A reading after a gap, past the span, does not change the decision:
+    ImuTransformer tf_gap;
+    feed(tf_gap, 0, 1, 1.0, 9.80665, "units of g, one reading");
+    feed(tf_gap, 200, 1, 5.0, 5.0 * 9.80665, "units of g, after a gap");
 
     // m/s², then frozen: a later reading of 1.0 is not scaled.
     ImuTransformer tf_si;

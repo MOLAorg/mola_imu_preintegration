@@ -168,11 +168,21 @@ mrpt::obs::CObservationIMU ImuTransformer::process(const mrpt::obs::CObservation
                 {
                     accel_first_stamp_ = stamp;
                 }
-                accel_norm_sum_ += norm;
-                accel_norm_count_++;
-                const double meanNorm = accel_norm_sum_ / static_cast<double>(accel_norm_count_);
-                accel_auto_scale_ = meanNorm < ACCEL_NORM_MIN_FOR_SI_UNITS ? STANDARD_GRAVITY : 1.0;
-                accel_units_decided_ = stamp - accel_first_stamp_ >= ACCEL_UNITS_DETECTION_PERIOD;
+                if (stamp - accel_first_stamp_ > ACCEL_UNITS_DETECTION_PERIOD)
+                {
+                    // Past the span (e.g. after a gap): decided by the readings
+                    // within it.
+                    accel_units_decided_ = true;
+                }
+                else
+                {
+                    accel_norm_sum_ += norm;
+                    accel_norm_count_++;
+                    const double meanNorm =
+                        accel_norm_sum_ / static_cast<double>(accel_norm_count_);
+                    accel_auto_scale_ =
+                        meanNorm < ACCEL_NORM_MIN_FOR_SI_UNITS ? STANDARD_GRAVITY : 1.0;
+                }
             }
             accel_scale = accel_auto_scale_;
         }
