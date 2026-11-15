@@ -24,6 +24,8 @@
 #include <mrpt/math/TPoint3D.h>
 #include <mrpt/obs/obs_frwds.h>
 
+#include <cstddef>
+
 namespace mola::imu
 {
 /** Transforms IMU readings from an arbitrary sensor pose to the vehicle reference "base_link".
@@ -37,8 +39,11 @@ namespace mola::imu
  * Note that bias is *not* subtracted here, it must be done by the caller.
  * Also, gravity is not subtracted here since this class has no knowledge of global orientation.
  *
- * Since this class has a state (the stamp of the last observation), one object must be instantiated
- * for each IMU sensor.
+ * The acceleration is also converted to m/s² if the sensor reports it in units of g (see
+ * Parameters::accel_scale).
+ *
+ * Since this class has a state (the stamp of the last observation, the filters, the accelerometer
+ * units), one object must be instantiated for each IMU sensor.
  *
  * \ingroup mola_imu_preintegration_grp
  */
@@ -86,6 +91,14 @@ class ImuTransformer
          * Default: 0 (unset: use `ang_vel_lpf_cutoff_hz`).
          */
         double ang_vel_lpf_alpha = 0;
+
+        /** Multiplier taking the accelerometer readings to m/s² (must be >= 0).
+         * 0 (default): automatic, since some drivers publish them in units of g.
+         * It is decided from the mean norm of the valid readings (finite, not
+         * near zero) over their first 0.5 s: about 1 means units of g, near 9.8
+         * m/s². Within that span the decision so far applies; after it, the
+         * decision is kept for good. */
+        double accel_scale = 0;
     };
 
     Parameters parameters;
@@ -98,6 +111,13 @@ class ImuTransformer
     mrpt::math::TVector3D last_ang_vel_body_{0, 0, 0};
     mrpt::math::TVector3D filtered_ang_acc_{0, 0, 0};  ///< EMA state for angular acceleration
     mrpt::math::TVector3D filtered_ang_vel_{0, 0, 0};  ///< EMA state for ω used in centripetal
+
+    // Automatic accelerometer units (Parameters::accel_scale = 0):
+    double      accel_norm_sum_      = 0;
+    std::size_t accel_norm_count_    = 0;
+    double      accel_first_stamp_   = 0;
+    double      accel_auto_scale_    = 1.0;
+    bool        accel_units_decided_ = false;
 };
 
 }  // namespace mola::imu

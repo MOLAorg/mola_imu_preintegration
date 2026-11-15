@@ -20,6 +20,7 @@
  */
 
 #include <mola_imu_preintegration/ImuTransformer.h>
+#include <mrpt/core/exceptions.h>
 #include <mrpt/math/TPoint3D.h>
 #include <mrpt/math/TTwist3D.h>
 #include <mrpt/math/geometry.h>
@@ -33,6 +34,13 @@ using namespace mola::imu;
 
 namespace
 {
+// Span [s] of the first accelerometer readings whose mean norm decides their
+// units, the mean norm below which they are taken in units of g, and g.
+constexpr double ACCEL_UNITS_DETECTION_PERIOD = 0.5;
+constexpr double ACCEL_NORM_MIN_FOR_SI_UNITS  = 3.0;
+constexpr double ACCEL_NORM_MIN_VALID         = 0.3;
+constexpr double STANDARD_GRAVITY             = 9.80665;  // [m/s²]
+
 // Per-sample factor of a first-order EMA low-pass filter: a legacy fixed
 // factor if given (> 0), otherwise the one matching the cut-off frequency for
 // this time step. A non-positive cut-off disables the filter.
@@ -140,8 +148,37 @@ mrpt::obs::CObservationIMU ImuTransformer::process(const mrpt::obs::CObservation
             raw_imu.get(mrpt::obs::IMU_Y_ACC),  //
             raw_imu.get(mrpt::obs::IMU_Z_ACC));
 
+        // Units: some drivers publish the acceleration in units of g. If not
+        // given, they are decided from the mean norm of the valid readings over
+        // their first span: the decision so far applies within it, and is then
+        // kept for good.
+        ASSERT_GE_(parameters.accel_scale, 0.0);
+        double accel_scale = parameters.accel_scale;
+        if (accel_scale == 0)
+        {
+            const double stamp = mrpt::Clock::toDouble(raw_imu.timestamp);
+            const double norm  = raw_accel_sensor.norm();
+            // Readings without information (e.g. zeros while a driver starts)
+            // are left out:
+            const bool valid = std::isfinite(norm) && norm > ACCEL_NORM_MIN_VALID;
+            if (!accel_units_decided_ && valid &&
+                (accel_norm_count_ == 0 || stamp >= accel_first_stamp_))
+            {
+                if (accel_norm_count_ == 0)
+                {
+                    accel_first_stamp_ = stamp;
+                }
+                accel_norm_sum_ += norm;
+                accel_norm_count_++;
+                const double meanNorm = accel_norm_sum_ / static_cast<double>(accel_norm_count_);
+                accel_auto_scale_ = meanNorm < ACCEL_NORM_MIN_FOR_SI_UNITS ? STANDARD_GRAVITY : 1.0;
+                accel_units_decided_ = stamp - accel_first_stamp_ >= ACCEL_UNITS_DETECTION_PERIOD;
+            }
+            accel_scale = accel_auto_scale_;
+        }
+
         // Rotate acceleration from sensor frame to body frame:
-        const auto accel_body_rotated = imu.sensorPose.rotateVector(raw_accel_sensor);
+        const auto accel_body_rotated = imu.sensorPose.rotateVector(raw_accel_sensor * accel_scale);
 
         //  a_imu  = a_body + α×t + ω×(ω×t)  ==>
         //  a_body = R * a_imu - α×t - ω×(ω×t)
